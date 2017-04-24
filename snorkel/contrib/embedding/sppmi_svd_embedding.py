@@ -2,7 +2,7 @@ import gensim
 import numpy as np
 
 from collections import defaultdict
-from utils import DEFAULT_STOPS, Embedder, strip_special
+from .utils import DEFAULT_STOPS, Embedder, strip_special
 from scipy import sparse
 
 
@@ -17,18 +17,18 @@ class SnorkelSentenceGensimCorpus(gensim.interfaces.CorpusABC):
 		self.t          = subsample_t
 		self.min_count  = min_count
 		self.dictionary = gensim.corpora.dictionary.Dictionary(prune_at=None)
-		print "Processing corpus with {0} documents".format(len(documents))
+		print("Processing corpus with {0} documents".format(len(documents)))
 		self._process_tokens()
-		print "Corpus processing done!"
+		print("Corpus processing done!")
 
 	def _filter(self, tokens, lower=True):
 		"""Filter out stopwords and single-characters from a word sequence
 		Optionally converts words to lowercase
 		"""
-		z = filter(lambda w: len(w) > 1 and w not in self.stopwords, tokens)
+		z = [w for w in tokens if len(w) > 1 and w not in self.stopwords]
 		if lower:
 			return [w.lower() for w in map(strip_special, z)]
-		return map(strip_special, z)
+		return list(map(strip_special, z))
 
 	def _token_seq_generator(self):
 		"""Iterator over sentences producing their tokens"""
@@ -47,12 +47,12 @@ class SnorkelSentenceGensimCorpus(gensim.interfaces.CorpusABC):
 			for token in sent_tokens:
 				counts[token] += 1
 		# Remove infrequent words
-		print "\t{0} words in corpus".format(len(self.dictionary.token2id))
+		print("\t{0} words in corpus".format(len(self.dictionary.token2id)))
 		self.dictionary.filter_extremes(
 			no_below=self.min_count, no_above=1.0, keep_n=None
 		)
 		# Dirty subsampling
-		keys, s = self.dictionary.token2id.keys(), sum(counts.values())
+		keys, s = list(self.dictionary.token2id.keys()), sum(counts.values())
 		f = np.ravel([counts[k] for k in keys]) / float(s)
 		p = 1.0 - np.sqrt(self.t / f)
 		keep = (np.random.random(len(keys)) < p)
@@ -60,7 +60,7 @@ class SnorkelSentenceGensimCorpus(gensim.interfaces.CorpusABC):
 			self.dictionary.token2id[k] for k, y in zip(keys, keep) if not y
 		]
 		self.dictionary.filter_tokens(bad_ids=bad_ids)
-		print "\t{0} words after filter".format(len(self.dictionary.token2id))
+		print("\t{0} words after filter".format(len(self.dictionary.token2id)))
 
 	def iter_sentences(self):
 		for sent_tokens in self._token_seq_generator():
@@ -89,9 +89,9 @@ class SPPMISVDEmbedder(Embedder):
 		super(SPPMISVDEmbedder, self).__init__(corpus, None)
 		self.dictionary = corpus.dictionary
 		self.w          = window_size
-		print "Processing corpus with context window size 2"
+		print("Processing corpus with context window size 2")
 		self.D, self.W, self.C, self.token_ct = self._process_corpus()
-		print "Corpus processing done!"
+		print("Corpus processing done!")
 
 	def _process_corpus(self):
 		# Construct co-occurence and count matrics
@@ -116,12 +116,12 @@ class SPPMISVDEmbedder(Embedder):
 			@k:         log shift parameter (number of negative samples)
 		"""
 		# Context distribution smoothing
-		C_cds = {k: v**alpha_cds for k, v in self.C.iteritems()}
+		C_cds = {k: v**alpha_cds for k, v in self.C.items()}
 		t_cds = float(sum(C_cds.values()))
 		# Construct SPPMI matrix
 		M = sparse.lil_matrix((len(self.dictionary), len(self.dictionary)))
 		neg = np.log(k)
-		for (w, c), v in self.D.iteritems():
+		for (w, c), v in self.D.items():
 			# Be safe about assigning zeros to sparse matrix
 			spmi = np.log((v * t_cds) / (self.W[w] * C_cds[c])) - neg
 			if spmi > 0:

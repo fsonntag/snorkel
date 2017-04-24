@@ -1,4 +1,4 @@
-import os, requests, sys, unittest, cPickle
+import os, requests, sys, unittest, pickle
 from time import sleep
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 from snorkel.matchers import *
@@ -12,7 +12,7 @@ class TestMatchers(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with open(DATA_PATH + 'CDR_TestSet_sents.pkl', 'rb') as f:
-            cls.CDR_sents = cPickle.load(f)
+            cls.CDR_sents = pickle.load(f)
         cls.sp     = SentenceParser()
         cls.ngrams = Ngrams()
 

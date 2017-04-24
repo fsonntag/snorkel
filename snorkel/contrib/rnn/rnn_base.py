@@ -4,7 +4,7 @@ import tensorflow as tf
 import tensorflow.contrib.rnn as rnn
 
 from snorkel.learning import LabelBalancer, TFNoiseAwareModel
-from utils import f1_score, get_bi_rnn_output, SymbolTable
+from .utils import f1_score, get_bi_rnn_output, SymbolTable
 from time import time
 
 
@@ -145,8 +145,8 @@ class RNNBase(TFNoiseAwareModel):
         """
         verbose = print_freq > 0
         if verbose:
-            print("[{0}] Dimension={1}  LR={2}".format(self.name, dim, lr))
-            print("[{0}] Begin preprocessing".format(self.name))
+            print(("[{0}] Dimension={1}  LR={2}".format(self.name, dim, lr)))
+            print(("[{0}] Begin preprocessing".format(self.name)))
             st = time()
         # Text preprocessing
         train_data, ends = self._preprocess_data(candidates, extend=True)
@@ -172,21 +172,21 @@ class RNNBase(TFNoiseAwareModel):
             dev_gold = np.ravel(dev_labels)
             if not ((dev_gold >= 0).all() and (dev_gold <= 1).all()):
                 raise Exception("Dev labels should be in [0, 1]")
-            print("[{0}] Loaded {1} candidates for evaluation".format(
+            print(("[{0}] Loaded {1} candidates for evaluation".format(
                 self.name, len(dev_data)
-            ))
+            )))
         # Run mini-batch SGD
         n = len(x_train)
         batch_size = min(batch_size, n)
         if verbose:
-            print("[{0}] Preprocessing done ({1:.2f}s)".format(
+            print(("[{0}] Preprocessing done ({1:.2f}s)".format(
                 self.name, time() - st
-            ))
+            )))
             st = time()
-            print("[{0}] Training model".format(self.name))
-            print("[{0}] #examples={1}  #epochs={2}  batch size={3}".format(
+            print(("[{0}] Training model".format(self.name)))
+            print(("[{0}] #examples={1}  #epochs={2}  batch size={3}".format(
                 self.name, n, n_epochs, batch_size
-            ))
+            )))
         self.session.run(tf.global_variables_initializer())
         for t in range(n_epochs):
             epoch_loss = []
@@ -210,9 +210,9 @@ class RNNBase(TFNoiseAwareModel):
                     dev_p    = self._marginals_preprocessed(dev_data)
                     f1, _, _ = f1_score(dev_p, dev_gold)
                     msg     += '\tDev F1={0:.2f}'.format(100. * f1)
-                print msg
+                print(msg)
         if verbose:
-            print("[{0}] Training done ({1:.2f}s)".format(self.name, time()-st))
+            print(("[{0}] Training done ({1:.2f}s)".format(self.name, time()-st)))
 
     def _marginals_preprocessed(self, test_data):
         """Get marginals from preprocessed data"""

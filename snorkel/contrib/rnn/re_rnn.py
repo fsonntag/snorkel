@@ -1,7 +1,7 @@
 import numpy as np
 
-from rnn_base import RNNBase
-from utils import candidate_to_tokens
+from .rnn_base import RNNBase
+from .utils import candidate_to_tokens
 
 
 def mark(l, h, idx):
@@ -51,6 +51,6 @@ class reRNN(RNNBase):
             s = mark_sentence(candidate_to_tokens(candidate), args)
             # Either extend word table or retrieve from it
             f = self.word_dict.get if extend else self.word_dict.lookup
-            data.append(np.array(map(f, s)))
+            data.append(np.array(list(map(f, s))))
             ends.append(max(candidate[i].get_word_end() for i in [0, 1]))
         return data, ends

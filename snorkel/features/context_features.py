@@ -18,7 +18,7 @@ def get_token_count_feats(candidate, context, attr, ngram, stopwords):
     counter = defaultdict(int)
     # Count n-gram instances
     for tokens in (sent[attr] for sent in context.get_sentence_generator()):
-        for i in xrange(len(tokens)):
+        for i in range(len(tokens)):
             for j in range(i+1, min(len(tokens), i + ngram) + 1):
                 counter[' '.join(tokens[i:j])] += 1
     # Yield counts if n-gram is not in stopwords

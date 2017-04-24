@@ -31,7 +31,7 @@ class NoiseAwareModel(object):
         **kwargs):
         # Get the test candidates
         test_candidates = [
-            X_test.get_candidate(session, i) for i in xrange(X_test.shape[0])
+            X_test.get_candidate(session, i) for i in range(X_test.shape[0])
         ] if not self.representation else X_test
         # Initialize scorer
         s = scorer(test_candidates, test_labels, gold_candidate_set)
@@ -91,9 +91,9 @@ class TFNoiseAwareModel(NoiseAwareModel):
         saver = tf.train.Saver(save_dict)
         saver.save(self.session, './' + model_name, global_step=0)
         if verbose:
-            print("[{0}] Model saved. To load, use name\n\t\t{1}".format(
+            print(("[{0}] Model saved. To load, use name\n\t\t{1}".format(
                 self.name, model_name
-            ))
+            )))
 
     def load(self, model_name, verbose=True):
         """Load TensorFlow model from file
@@ -108,7 +108,7 @@ class TFNoiseAwareModel(NoiseAwareModel):
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(self.session, ckpt.model_checkpoint_path)
             if verbose:
-                print("[{0}] Loaded model <{1}>".format(self.name, model_name))
+                print(("[{0}] Loaded model <{1}>".format(self.name, model_name)))
         else:
             raise Exception("[{0}] No model found at <{1}>".format(
                 self.name, model_name

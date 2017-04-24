@@ -30,8 +30,8 @@ class Matcher(object):
         Checks for unsupported opts, throws error if found
         NOTE: Must be called _after_ init()
         """
-        for opt in self.opts.keys():
-            if not self.__dict__.has_key(opt):
+        for opt in list(self.opts.keys()):
+            if opt not in self.__dict__:
                 raise Exception("Unsupported option: %s" % opt)
 
     def _f(self, c):
@@ -186,7 +186,7 @@ class SlotFillMatch(NgramMatcher):
 
         # Parse slot fill pattern
         split        = re.split(r'\{(\d+)\}', self.pattern)
-        self._ops    = map(int, split[1::2])
+        self._ops    = list(map(int, split[1::2]))
         self._splits = split[::2]
 
         # NOTE: Must have non-null splits!!

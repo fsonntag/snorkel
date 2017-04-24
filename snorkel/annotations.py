@@ -65,7 +65,7 @@ class csr_LabelMatrix(csr_AnnotationMatrix):
         # Default LF stats
         col_names = ['j', 'Coverage', 'Overlaps', 'Conflicts']
         d = {
-            'j'         : range(self.shape[1]),
+            'j'         : list(range(self.shape[1])),
             'Coverage'  : Series(data=matrix_coverage(self), index=lf_names),
             'Overlaps'  : Series(data=matrix_overlaps(self), index=lf_names),
             'Conflicts' : Series(data=matrix_conflicts(self), index=lf_names)
@@ -355,7 +355,7 @@ def save_marginals(session, L, marginals):
     # Execute update
     session.execute(q, update_vals)
     session.commit()
-    print "Saved %s training marginals" % len(marginals)
+    print("Saved %s training marginals" % len(marginals))
 
 
 def load_marginals(session, split):

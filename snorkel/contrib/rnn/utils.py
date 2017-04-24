@@ -25,7 +25,7 @@ class SymbolTable(object):
         return self.s
 
     def reverse(self):
-        return {v: k for k, v in self.d.iteritems()}
+        return {v: k for k, v in self.d.items()}
 
 
 def scrub(s):

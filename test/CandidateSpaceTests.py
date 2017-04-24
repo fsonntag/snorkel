@@ -1,4 +1,4 @@
-import os, sys, unittest, cPickle
+import os, sys, unittest, pickle
 from time import sleep
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 from snorkel.candidates import *
@@ -11,9 +11,9 @@ class TestCandidateSpace(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with open(DATA_PATH + 'CDR_TestSet_sents.pkl', 'rb') as f:
-            cls.sents = cPickle.load(f)
+            cls.sents = pickle.load(f)
         with open(DATA_PATH + 'CDR_TestSet_sent_0_ngrams.pkl', 'rb') as f:
-            cls.gold_ngrams_0 = cPickle.load(f)
+            cls.gold_ngrams_0 = pickle.load(f)
         cls.sp     = SentenceParser()
 
     @classmethod

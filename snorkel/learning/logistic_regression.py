@@ -1,11 +1,11 @@
-import cPickle
+import pickle
 import numpy as np
 import tensorflow as tf
 
-from disc_learning import TFNoiseAwareModel
+from .disc_learning import TFNoiseAwareModel
 from scipy.sparse import csr_matrix, issparse
 from time import time
-from utils import LabelBalancer
+from .utils import LabelBalancer
 
 
 SD = 0.1
@@ -88,10 +88,10 @@ class LogisticRegression(TFNoiseAwareModel):
         X = self._check_input(X)
         verbose = print_freq > 0
         if verbose:
-            print("[{0}] lr={1} l1={2} l2={3}".format(
+            print(("[{0}] lr={1} l1={2} l2={3}".format(
                 self.name, lr, l1_penalty, l2_penalty
-            ))
-            print("[{0}] Building model".format(self.name))
+            )))
+            print(("[{0}] Building model".format(self.name)))
         self.d          = X.shape[1]
         self.lr         = lr
         self.l1_penalty = l1_penalty
@@ -108,12 +108,12 @@ class LogisticRegression(TFNoiseAwareModel):
         nnz = 0
         if verbose:
             st = time()
-            print("[{0}] Training model".format(self.name))
-            print("[{0}] #examples={1}  #epochs={2}  batch size={3}".format(
+            print(("[{0}] Training model".format(self.name)))
+            print(("[{0}] #examples={1}  #epochs={2}  batch size={3}".format(
                 self.name, n, n_epochs, batch_size
-            ))
+            )))
         self.session.run(tf.global_variables_initializer())
-        for t in xrange(n_epochs):
+        for t in range(n_epochs):
             epoch_loss = 0.0
             for i in range(0, n, batch_size):
                 r = min(n-1, i+batch_size)
@@ -122,9 +122,9 @@ class LogisticRegression(TFNoiseAwareModel):
             # Print training stats
             if verbose and (t % print_freq == 0 or t in [0, (n_epochs-1)]):
                 msg = "[{0}] Epoch {1} ({2:.2f}s)\tAvg. loss={3:.6f}\tNNZ={4}"
-                print(msg.format(self.name, t, time()-st, epoch_loss/n, nnz))
+                print((msg.format(self.name, t, time()-st, epoch_loss/n, nnz)))
         if verbose:
-            print("[{0}] Training done ({1:.2f}s)".format(self.name, time()-st))
+            print(("[{0}] Training done ({1:.2f}s)".format(self.name, time()-st)))
 
     def marginals(self, X_test):
         X_test = self._check_input(X_test)
@@ -137,11 +137,11 @@ class LogisticRegression(TFNoiseAwareModel):
 
     def save_info(self, model_name):
         with open('{0}.info'.format(model_name), 'wb') as f:
-            cPickle.dump((self.d, self.lr, self.l1_penalty, self.l2_penalty), f)
+            pickle.dump((self.d, self.lr, self.l1_penalty, self.l2_penalty), f)
 
     def load_info(self, model_name):
         with open('{0}.info'.format(model_name), 'rb') as f:
-            self.d, self.lr, self.l1_penalty, self.l2_penalty = cPickle.load(f)
+            self.d, self.lr, self.l1_penalty, self.l2_penalty = pickle.load(f)
 
 
 class SparseLogisticRegression(LogisticRegression):
@@ -212,7 +212,7 @@ class SparseLogisticRegression(LogisticRegression):
                 continue
             # Update indices by position
             max_len = max(max_len, len(row))
-            indices.extend((i, t) for t in xrange(len(row)))
+            indices.extend((i, t) for t in range(len(row)))
             ids.extend(row)
             weights.extend(data)
         shape = (len(X_lil.rows), max_len)

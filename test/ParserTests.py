@@ -1,6 +1,6 @@
 import os, requests, sys, unittest
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
-import cPickle
+import pickle
 from snorkel.parser import *
 
 ROOT = os.environ['SNORKELHOME']
@@ -20,10 +20,10 @@ class TestParsers(unittest.TestCase):
 
         # Load correct parses
         with open(ROOT + '/test/data/CDR_TestSet_docs.pkl', 'rb') as f:
-            gold_docs = cPickle.load(f)
+            gold_docs = pickle.load(f)
 
         with open(ROOT + '/test/data/CDR_TestSet_sents.pkl', 'rb') as f:
-            gold_sents = cPickle.load(f)
+            gold_sents = pickle.load(f)
 
         # Set up the doc parser
         xml_parser = XMLDocParser(

@@ -33,7 +33,7 @@ class Embedder(object):
 	def marginal_estimates(self):
 		s = sum(self.token_ct.values())
 		marginals = np.zeros(len(self.token_ct))
-		for k, v in self.token_ct.iteritems():
+		for k, v in self.token_ct.items():
 			marginals[k] = float(v) / s
 		return marginals
 

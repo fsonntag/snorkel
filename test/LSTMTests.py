@@ -1,4 +1,4 @@
-import os, sys, unittest, cPickle
+import os, sys, unittest, pickle
 
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 from snorkel.snorkel import *
@@ -17,15 +17,15 @@ class TestLSTM(unittest.TestCase):
     feats = None
     pkl_f = os.path.join(ROOT, 'test/data/lstm_test/gene_tag_feats_v2.pkl')
     with open(pkl_f, 'rb') as f:
-      feats = cPickle.load(f)
+      feats = pickle.load(f)
 
     DDL = DDLiteModel(E, feats)
-    print "Extracted {} features for each of {} mentions".format(DDL.num_feats(), DDL.num_candidates())
+    print("Extracted {} features for each of {} mentions".format(DDL.num_feats(), DDL.num_candidates()))
 
     with open(os.path.join(ROOT, 'test/data/lstm_test/gt/uids.pkl'), 'rb') as f:
-      uids = cPickle.load(f)
+      uids = pickle.load(f)
     with open(os.path.join(ROOT, 'test/data/lstm_test/gt/gt.pkl'), 'rb') as f:
-      gt = cPickle.load(f)
+      gt = pickle.load(f)
 
     # Transform for legacy compatibility!
     uids = [re.sub(r'\.html', '', re.sub(r'\[\'.*?\'\]', '[\'MATCHER\']', uid)) for uid in uids]

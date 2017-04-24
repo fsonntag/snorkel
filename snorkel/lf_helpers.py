@@ -5,7 +5,7 @@ from .annotations import load_gold_labels
 from .learning.utils import MentionScorer
 from .models import Span, Label, Candidate
 from itertools import chain
-from utils import tokens_to_ngrams
+from .utils import tokens_to_ngrams
 
 
 def get_text_splits(c):
@@ -90,7 +90,7 @@ def get_left_tokens(c, window=3, attrib='words', n_max=1, case_sensitive=False):
     span = c if isinstance(c, Span) else c[0] 
     i    = span.get_word_start()
     f = (lambda w: w) if case_sensitive else (lambda w: w.lower())
-    return [ngram for ngram in tokens_to_ngrams(map(f, span.get_parent()._asdict()[attrib][max(0, i-window):i]), n_max=n_max)]
+    return [ngram for ngram in tokens_to_ngrams(list(map(f, span.get_parent()._asdict()[attrib][max(0, i-window):i])), n_max=n_max)]
 
 
 def get_right_tokens(c, window=3, attrib='words', n_max=1, case_sensitive=False):
@@ -103,7 +103,7 @@ def get_right_tokens(c, window=3, attrib='words', n_max=1, case_sensitive=False)
     span = c if isinstance(c, Span) else c[-1]
     i    = span.get_word_end()
     f = (lambda w: w) if case_sensitive else (lambda w: w.lower())
-    return [ngram for ngram in tokens_to_ngrams(map(f, span.get_parent()._asdict()[attrib][i+1:i+1+window]), n_max=n_max)]
+    return [ngram for ngram in tokens_to_ngrams(list(map(f, span.get_parent()._asdict()[attrib][i+1:i+1+window])), n_max=n_max)]
 
 
 def contains_token(c, tok, attrib='words', case_sensitive=False):
@@ -113,7 +113,7 @@ def contains_token(c, tok, attrib='words', case_sensitive=False):
     """
     spans = [c] if isinstance(c, Span) else c.get_contexts()
     f = (lambda w: w) if case_sensitive else (lambda w: w.lower())
-    return f(tok) in set(chain.from_iterable(map(f, span.get_attrib_tokens(attrib))
+    return f(tok) in set(chain.from_iterable(list(map(f, span.get_attrib_tokens(attrib)))
         for span in spans))
 
 
@@ -146,7 +146,7 @@ def get_matches(lf, candidate_set, match_values=[1,-1]):
         label = lf(c)
         if label in match_values:
             matches.append(c)
-    print "%s matches" % len(matches)
+    print("%s matches" % len(matches))
     return matches
 
 def rule_text_btw(candidate, text, sign):

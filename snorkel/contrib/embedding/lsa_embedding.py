@@ -2,7 +2,7 @@ import gensim
 import numpy as np
 
 from collections import defaultdict
-from utils import DEFAULT_STOPS, Embedder, strip_special
+from .utils import DEFAULT_STOPS, Embedder, strip_special
 
 
 class SnorkelGensimCorpus(gensim.interfaces.CorpusABC):
@@ -23,13 +23,13 @@ class SnorkelGensimCorpus(gensim.interfaces.CorpusABC):
 		if not self.bigrams:
 			return tokens
 		grams = list(tokens)
-		for i in xrange(len(tokens) - 1):
+		for i in range(len(tokens) - 1):
 			grams.append('{0} {1}'.format(grams[i], grams[i+1]))
 		return grams
 
 	def _filter(self, tokens):
 		"""Filter out stopwords and single-characters from a word sequence"""
-		z = filter(lambda w: len(w) > 1 and w not in self.stopwords, tokens)
+		z = [w for w in tokens if len(w) > 1 and w not in self.stopwords]
 		return [strip_special(w) for w in z]
 
 	def _token_seq_generator(self):
@@ -54,7 +54,7 @@ class SnorkelGensimCorpus(gensim.interfaces.CorpusABC):
 		self.dictionary.filter_extremes(no_below=2, no_above=0.9, keep_n=None)
 		# Replace count dictionary keys with tokenIDs
 		self.token_ct = defaultdict(int)
-		for token, ct in counts.iteritems():
+		for token, ct in counts.items():
 			if token in self.dictionary.token2id:
 				self.token_ct[self.dictionary.token2id[token]] = ct
 
@@ -98,19 +98,19 @@ class LSAEmbedder(Embedder):
 		self.fname      = 'lsa_snorkel'
 		self.tfidf_mm   = None
 		self.lsa        = None
-		print "Processing corpus"
+		print("Processing corpus")
 		self._process_corpus()
-		print "Corpus processed!"
+		print("Corpus processed!")
 
 	def _process_corpus(self):
 		# Get MatrixMarket format corpus
-		print "\tConverting corpus"
+		print("\tConverting corpus")
 		gensim.corpora.MmCorpus.serialize(
 			self.fname + '.mm', self.corpus, progress_cnt=100
 		)
 		mm_corpus = gensim.corpora.MmCorpus(self.fname + '.mm')
 		# Get TF-IDF model
-		print "\tComputing TF-IDF"
+		print("\tComputing TF-IDF")
 		tfidf = gensim.models.TfidfModel(
 			mm_corpus, id2word=self.dictionary, normalize=True
 		)
@@ -118,7 +118,7 @@ class LSAEmbedder(Embedder):
 			self.fname + '_tfidf.mm', tfidf[mm_corpus], progress_cnt=100
 		)
 		# Reload as Matrix Market format
-		print "\tConverting TF-IDF"
+		print("\tConverting TF-IDF")
 		self.tfidf_mm = gensim.corpora.MmCorpus(self.fname + '_tfidf.mm')
 
 	def run_lsa(self, n_topics=200):

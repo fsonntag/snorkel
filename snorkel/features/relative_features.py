@@ -5,7 +5,7 @@ import sys
 sys.path.append(os.path.join(os.environ['SNORKELHOME'], 'treedlib'))
 
 from collections import defaultdict
-from entity_features import compile_entity_feature_generator, get_ddlib_feats
+from .entity_features import compile_entity_feature_generator, get_ddlib_feats
 from functools import partial
 from snorkel.models import Span
 from snorkel.utils import get_as_dict
@@ -68,11 +68,11 @@ def get_span_feats(candidate, stopwords=None):
         raise ValueError("Accepts Span-type arguments, %s-type found.")
     # Unary candidates
     if len(args) == 1:
-        sidxs = range(args[0].get_word_start(), args[0].get_word_end() + 1)
+        sidxs = list(range(args[0].get_word_start(), args[0].get_word_end() + 1))
         return get_unary_span_feats(sidxs, candidate.get_parent(), stopwords)
     # Binary candidates
     elif len(args) == 2:
-        sidxs = [range(a.get_word_start(), a.get_word_end() + 1) for a in args]
+        sidxs = [list(range(a.get_word_start(), a.get_word_end() + 1)) for a in args]
         return get_binary_span_feats(sidxs, candidate.get_parent(), stopwords)
     else:
         raise NotImplementedError("Only handles unary or binary candidates")

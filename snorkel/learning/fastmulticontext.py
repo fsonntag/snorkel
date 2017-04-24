@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 
 import concurrent.futures
 import numba
@@ -6,7 +6,7 @@ import numpy as np
 import time
 
 from collections import defaultdict
-from disc_learning import NoiseAwareModel
+from .disc_learning import NoiseAwareModel
 from math import exp, log
 
 
@@ -37,11 +37,11 @@ class FMCT(NoiseAwareModel):
 
 def get_matrix_keys(matrices):
     n, m = matrices[0].shape[0], len(matrices)
-    embed_xs = [[[] for _ in xrange(m)] for _ in xrange(n)]
+    embed_xs = [[[] for _ in range(m)] for _ in range(n)]
     for k, matrix in enumerate(matrices):
         matrix_coo = matrix.tocoo(copy=True)
         for i, j, ct in zip(matrix_coo.row, matrix_coo.col, matrix_coo.data):
-            embed_xs[i][k].extend('FEATURE_{0}_{1}'.format(k, j) for _ in xrange(int(ct)))
+            embed_xs[i][k].extend('FEATURE_{0}_{1}'.format(k, j) for _ in range(int(ct)))
         print("Processed {0} matrices".format(k))
     return embed_xs
 
@@ -55,16 +55,16 @@ def fmct_activation(z, hidden_embed, wo, wo_raw, wi_sub, x_ct, x_type, x_raw):
     raw_size = wo_raw.shape[1]
     x_size, dim = wi_sub.shape
     # Embedded features
-    for i in xrange(x_size):
+    for i in range(x_size):
         if x_ct[i] == 0:
             continue
-        for j in xrange(dim):
+        for j in range(dim):
             hidden_embed[j + x_type[i]*dim] += wi_sub[i][j] / x_ct[i]
     # Compute activations
-    for k in xrange(n_classes):
-        for j in xrange(embed_size):
+    for k in range(n_classes):
+        for j in range(embed_size):
             z[k] += wo[k][j] * hidden_embed[j]
-        for r in xrange(raw_size):
+        for r in range(raw_size):
             z[k] += wo_raw[k][r] * x_raw[r]
 
 
@@ -82,34 +82,34 @@ def fmct_update(wo, wo_raw, wi_sub, x_ct, x_type, x_raw, p, lr, lambda_n):
     fmct_activation(z, hidden_embed, wo, wo_raw, wi_sub, x_ct, x_type, x_raw)
     # Compute softmax
     mz = z[0]
-    for i in xrange(n_classes):
+    for i in range(n_classes):
         mz = max(mz, z[i])
     s = 0
-    for k in xrange(n_classes):
+    for k in range(n_classes):
         z[k] = exp(z[k] - mz)
         s += z[k]
-    for k in xrange(n_classes):
+    for k in range(n_classes):
         z[k] /= s
     # Update embedding gradient and linear layer
     grad = np.zeros(embed_size)
-    for k in xrange(n_classes):
+    for k in range(n_classes):
         # Noise-aware gradient calculation
         # g(x) = [(1-p)\hat{p} - p(1-\hat{p})]x
         alpha = lr * ((1.0-p[k])*z[k] - p[k]*(1.0-z[k]))
         # Updates for embedded features
-        for j in xrange(embed_size):
+        for j in range(embed_size):
             grad[j] += alpha * wo[k][j]
             # Apply regularization first
             wo[k][j] *= (1.0 - lr * lambda_n)
             wo[k][j] -= alpha * hidden_embed[j]
         # Updates for raw features
-        for r in xrange(raw_size):
+        for r in range(raw_size):
             # Apply regularization first
             wo_raw[k][r] *= (1.0 - lr * lambda_n)
             wo_raw[k][r] -= alpha * x_raw[r]
     # Update embeddings
-    for i in xrange(x_size):
-        for j in xrange(dim):
+    for i in range(x_size):
+        for j in range(dim):
             if x_ct[i] == 0:
                 continue
             # Apply regularization first
@@ -117,7 +117,7 @@ def fmct_update(wo, wo_raw, wi_sub, x_ct, x_type, x_raw, p, lr, lambda_n):
             wi_sub[i][j] -= (grad[j + x_type[i]*dim] / x_ct[i])
     # Return loss
     pmx, lmx = 0.0, None
-    for k in xrange(n_classes):
+    for k in range(n_classes):
         if p[k] > pmx:
             pmx, lmx = p[k], -log(z[k])
     return lmx
@@ -139,7 +139,7 @@ def fmct_sgd_thread(thread_n, wo, wo_raw, wi, marginals, lambda_n, epoch, n, lr,
     loss, n_examples, lr_orig = 0, 0, lr
 
     ### Run SGD ###
-    for kt in xrange(epoch * n):
+    for kt in range(epoch * n):
         # Update status and learning rate
         k = kt % n
         n_examples += 1
@@ -174,7 +174,7 @@ def fmct_sgd(n_threads, *args):
     else:
         threadpool = concurrent.futures.ThreadPoolExecutor(n_threads)
         threads = [
-            threadpool.submit(fmct_sgd_thread, i, *args) for i in xrange(n_threads)
+            threadpool.submit(fmct_sgd_thread, i, *args) for i in range(n_threads)
         ]
         concurrent.futures.wait(threads)
         for thread in threads:
@@ -234,7 +234,7 @@ class fastmulticontext(object):
         feat_type_cache = []
         feat_start, feat_end = np.zeros(n, dtype=int), np.zeros(n, dtype=int)
         s = 0
-        for k in xrange(n):
+        for k in range(n):
             feats, feats_ct, feats_type = self._get_vocab_index(embed_xs[k])
             feat_cache.extend(feats)
             feat_ct_cache.extend(feats_ct)
@@ -275,7 +275,7 @@ class fastmulticontext(object):
         # If no raw features, add a bias term
         if raw_xs is None:
             raw_xs = np.ones((n, 1))
-        for k in xrange(n):
+        for k in range(n):
             x, x_raw = embed_xs[k], raw_xs[k, :]
             feats, feats_ct, feats_type = self._get_vocab_index(x)
             if len(feats) + np.sum(x_raw) == 0:
@@ -299,17 +299,17 @@ class fastmulticontext(object):
         min_ct: minimum count of feature to include in modeling
         """
         if not hasattr(min_ct, '__iter__'):
-            min_ct = [min_ct for _ in xrange(self.n_embed)]
-        count_dicts = [defaultdict(int) for _ in xrange(self.n_embed)]
+            min_ct = [min_ct for _ in range(self.n_embed)]
+        count_dicts = [defaultdict(int) for _ in range(self.n_embed)]
         # Count instances of feats in corpus
         for x in embed_xs:
             for d, feats in enumerate(x):
                 for feat in feats:
                     count_dicts[d][feat] += 1
         # Build vocab from feats with sufficient counts
-        self.vocabs = [{} for _ in xrange(self.n_embed)]
+        self.vocabs = [{} for _ in range(self.n_embed)]
         for d, count_dict in enumerate(count_dicts):
-            for feat, ct in count_dict.iteritems():
+            for feat, ct in count_dict.items():
                 if ct >= min_ct[d]:
                     self.vocabs[d][feat] = len(self.vocabs[d])
             print("Built vocab {0} of length {1}".format(d, len(self.vocabs[d])))
