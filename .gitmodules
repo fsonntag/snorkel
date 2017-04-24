@@ -1,4 +1,4 @@
 [submodule "treedlib"]
 	path = treedlib
-	url = https://www.github.com/HazyResearch/treedlib.git
+url=https://www.github.com/fsonntag/treedlib.git
 	branch = master
