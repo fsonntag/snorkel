@@ -299,6 +299,7 @@ class CoreNLPHandler(object):
             except:
                 sys.stderr.write('Could not kill CoreNLP server. Might already got killt...\n')
 
+    # TODO replace this thing with spacy...
     def parse(self, document, text):
         """Parse a raw document as a string into a list of sentences"""
 
@@ -333,7 +334,7 @@ class CoreNLPHandler(object):
                 dep_lab.append(deps['dep'])
                 dep_order.append(deps['dependent'])
 
-            parts['text'] = ''.join(t['originalText'] + t.get('after', '') for t in block['tokens'])
+            parts['text'] = ''.join(t['originalText'] + t.get('after', '').rstrip('\0') for t in block['tokens'])
             # make char_offsets relative to start of sentence
             abs_sent_offset = parts['char_offsets'][0]
             parts['char_offsets'] = [p - abs_sent_offset for p in parts['char_offsets']]
