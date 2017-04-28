@@ -7,11 +7,11 @@ sys.path.append(os.path.join(os.environ['SNORKELHOME'], 'treedlib'))
 from collections import defaultdict
 from .entity_features import compile_entity_feature_generator, get_ddlib_feats
 from functools import partial
-from snorkel.snorkel.models import Span
-from snorkel.snorkel.utils import get_as_dict
+from snorkel.models import Span
+from snorkel.utils import get_as_dict
 from string import punctuation
-from snorkel.tree_structs import corenlp_to_xmltree
-from snorkel.treedlib.treedlib import compile_relation_feature_generator
+from tree_structs import corenlp_to_xmltree
+from treedlib import compile_relation_feature_generator
 
 
 def get_span_splits(candidate, stopwords=None):

@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
 import atexit
-from bs4 import BeautifulSoup
 import codecs
-from collections import defaultdict
 import glob
 import json
-import lxml.etree as et
 import os
 import re
-import requests
 import signal
-from subprocess import Popen,PIPE
 import sys
 import warnings
+import requests
+import lxml.etree as et
+
+try:
+    import spacy
+except:
+    print>>sys.stderr,"Warning, unable to load 'spaCy' module"
+
+from bs4 import BeautifulSoup
+from subprocess import Popen,PIPE
+from collections import defaultdict
 
 from .models import Candidate, Context, Document, Sentence, construct_stable_id
 from .udf import UDF, UDFRunner
@@ -39,10 +45,10 @@ class CorpusParser(UDFRunner):
         if not parser:
             parser = self._default_parser_handler()
 
-        print "CorpusParserUDF: Launching {} server...".format(parser.name)
+        print("CorpusParserUDF: Launching {} server...".format(parser.name))
         # Block until CoreNLP server loads all required models
         parser.force_model_preloading()
-        print "CorpusParserUDF: Server ready."
+        print("CorpusParserUDF: Server ready.")
         return parser
 
     def _default_parser_handler(self):
@@ -69,9 +75,8 @@ class CorpusParserUDF(UDF):
     def __init__(self, parser, fn, **kwargs):
         super(CorpusParserUDF, self).__init__(**kwargs)
         self.parser = parser
-        self.req_handler = CoreNLPRequestHander(parser)
+        self.req_handler = parser.connect()
         self.fn = fn
-
 
     def apply(self, x, **kwargs):
         """Given a Document object and its raw text, parse into processed Sentences"""
@@ -320,14 +325,14 @@ class CoreNLPRequestHander(object):
         :return:
         '''
         if len(text.strip()) == 0:
-            print>>sys.stderr,"Warning, empty document {0} passed to CoreNLP".format(document.name)
+            print("Warning, empty document {0} passed to CoreNLP".format(document.name), file=sys.stderr)
             return
 
-        if isinstance(text, unicode):
-            text = text.encode('utf-8', 'error')
+        # if isinstance(text, unicode):
+        #     text = text.encode('utf-8', 'error')
         resp = self.requests_session.post(self.endpoint, data=text, allow_redirects=True)
-        text = text.decode('utf-8')
-        content = resp.content.strip()
+        # text = text.decode('utf-8')
+        content = str(resp.content.strip(), 'utf-8')
         if content.startswith("Request is too long"):
             raise ValueError("File {} too long. Max character count is 100K.".format(document.name))
         if content.startswith("CoreNLP request timed out"):
@@ -346,6 +351,11 @@ class CoreNLPRequestHander(object):
                 # Convert PennTreeBank symbols back into characters for words/lemmas
                 parts['words'].append(PTB.get(tok['word'], tok['word']))
                 parts['lemmas'].append(PTB.get(tok['lemma'], tok['lemma']))
+
+                # replace any non-breaking characters
+                #parts['words'].append(tok['word'].replace(u"\x00"," "))
+                #parts['lemma'].append(tok['lemma'].replace(u"\x00"," "))
+
                 parts['pos_tags'].append(tok['pos'])
                 parts['ner_tags'].append(tok['ner'])
                 parts['char_offsets'].append(tok['characterOffsetBegin'])
@@ -468,14 +478,14 @@ class CoreNLPServer(object):
         self.endpoint += '{%s}' % (props)
 
         if self.verbose:
-            print "------------------------------------"
-            print self.endpoint
-            print "version:", self.version
-            print "shell pid:", self.process_group.pid
-            print "port:", self.port
-            print "timeout:", self.timeout
-            print "threads:", self.num_threads
-            print "------------------------------------"
+            print("------------------------------------")
+            print(self.endpoint)
+            print("version:", self.version)
+            print("shell pid:", self.process_group.pid)
+            print("port:", self.port)
+            print("timeout:", self.timeout)
+            print("threads:", self.num_threads)
+            print("------------------------------------")
 
         # Following enables retries to cope with CoreNLP server boot-up latency
         # See: http://stackoverflow.com/a/35504626
@@ -510,66 +520,33 @@ class CoreNLPServer(object):
         props += [",".join(opts)] if opts else []
         return ",".join(props)
 
-    def _ssplit_opts(self, split_newline=False, newline_sent_break="two"):
+    def __del__(self):
         '''
-        Sentence splitter options
-
-        ssplit.eolonly
-        ssplit.isOneSentence
-        ssplit.newlineIsSentenceBreak  # "always", "never", or "two"
-        ssplit.boundaryMultiTokenRegex
-        ssplit.boundaryTokenRegex
-        ssplit.boundariesToDiscard
-        ssplit.htmlBoundariesToDiscard
-        ssplit.tokenPatternsToDiscard
-
+        Clean-up this object by forcing the server process to shut-down
         :return:
         '''
-        return {"newlineIsSentenceBreak": newline_sent_break}
+        self.close()
 
-    def _ner_opts(self):
+    def summary(self):
         '''
-        See https://stanfordnlp.github.io/CoreNLP/ner.html
-
-        ner.useSUTime
-        ner.model
-        ner.applyNumericClassifiers
-        sutime.markTimeRanges
-        sutime.includeRange
-
+        Print server parameters
         :return:
         '''
-        return {}
+        print "------------------------------------"
+        print self.endpoint
+        print "version:", self.version
+        print "shell pid:", self.process_group.pid
+        print "port:", self.port
+        print "timeout:", self.timeout
+        print "threads:", self.num_threads
+        print "------------------------------------"
 
-    def _tokenize_opts(self, ptb3_escaping=True, strict_ptb=False):
+    def connect(self):
         '''
-        PTBTokenizer has some behaviors we might want to disable
-
-        strict_ptb
-        (1) Add "." to the end of sentences that end with an abbrv, e.g., Corp.
-        (2) Adds a non-breaking space to fractions 5 1/2
-
-        ptb3_escaping
-        (1) Normalize tokens to PTB standards
-
-        # options format
-        opts = {"invertible": True,
-                "normalizeFractions": False,
-                "normalizeParentheses": False,
-                "normalizeOtherBrackets": False,
-                "normalizeCurrency": False,
-                "asciiQuotes": True,
-                "latexQuotes": False,
-                "ptb3Ellipsis": False,
-                "ptb3Dashes": False,
-                "escapeForwardSlashAsterisk": False,
-                "strictTreebank3": True}
-
-        :param ptb3_escaping: True = enable all PTB normalization
-        :param strict_ptb:    False = use PTBTokenizer behavior
+        Return URL connection object for this server
         :return:
         '''
-        return {"ptb3Escaping":ptb3_escaping, "strictTreebank3": strict_ptb}
+        return URLParserConnection(self)
 
     def close(self):
         '''
@@ -577,7 +554,7 @@ class CoreNLPServer(object):
         :return:
         '''
         if self.verbose:
-            print "Killing CoreNLP server [{}]...".format(self.process_group.pid)
+            print("Killing CoreNLP server [{}]...".format(self.process_group.pid))
         if self.process_group is not None:
             try:
                 os.killpg(os.getpgid(self.process_group.pid), signal.SIGTERM)
@@ -594,8 +571,8 @@ class CoreNLPServer(object):
         '''
         text = u"Forcing server to load default models."
         resp = self.requests_session.post(self.endpoint, data=text, allow_redirects=True)
-        text = text.decode('utf-8')
-        content = resp.content.strip()
+        # text = text.decode('utf-8')
+        content = str(resp.content.strip(), 'utf-8')
         if content.startswith("Request is too long"):
             raise ValueError("Max character count is 100K.")
         if content.startswith("CoreNLP request timed out"):
@@ -617,17 +594,17 @@ class CoreNLPServer(object):
         :return:
         '''
         if len(text.strip()) == 0:
-            print>>sys.stderr,"Warning, empty document {0} passed to CoreNLP".format(document.name)
+            print("Warning, empty document {0} passed to CoreNLP".format(document.name), file=sys.stderr)
             return
 
-        if isinstance(text, unicode):
-            text = text.encode('utf-8', 'error')
+        # if isinstance(text, unicode):
+        #     text = text.encode('utf-8', 'error')
         resp = self.requests_session.post(self.endpoint, data=text, allow_redirects=True)
-        text = text.decode('utf-8')
-        content = resp.content.strip()        
-        if str(content).startswith("Request is too long"):
+        # text = text.decode('utf-8')
+        content = str(resp.content.strip(), 'utf-8')
+        if content.startswith("Request is too long"):
             raise ValueError("File {} too long. Max character count is 100K.".format(document.name))
-        if str(content).startswith("CoreNLP request timed out"):
+        if content.startswith("CoreNLP request timed out"):
             raise ValueError("CoreNLP request timed out on file {}.".format(document.name))
         try:
             blocks = json.loads(content, strict=False)['sentences']
@@ -643,6 +620,11 @@ class CoreNLPServer(object):
                 # Convert PennTreeBank symbols back into characters for words/lemmas
                 parts['words'].append(PTB.get(tok['word'], tok['word']))
                 parts['lemmas'].append(PTB.get(tok['lemma'], tok['lemma']))
+
+                # replace any non-breaking characters
+                parts['words'].append(tok['word'].replace(u"\x00"," "))
+                parts['lemmas'].append(tok['lemma'].replace(u"\x00"," "))
+
                 parts['pos_tags'].append(tok['pos'])
                 parts['ner_tags'].append(tok['ner'])
                 parts['char_offsets'].append(tok['characterOffsetBegin'])
@@ -650,13 +632,15 @@ class CoreNLPServer(object):
                 dep_lab.append(deps['dep'])
                 dep_order.append(deps['dependent'])
 
-            # enabling whitespace tokenization removes the 'before'/'after' fields in output JSON (TODO: WHY?)
-            # so instead, we use 'characterOffsetEnd' and 'characterOffsetBegin' to recreate the text string
+            # certain configuration options remove 'before'/'after' fields in output JSON (TODO: WHY?)
+            # In order to create the 'text' field with correct character offsets we use
+            # 'characterOffsetEnd' and 'characterOffsetBegin' to build our string from token input
             if not [t for t in block['tokens'] if t.get('after', None)]:
                 text = ""
                 for t in block['tokens']:
                     # shift to start of local sentence offset
                     i = t['characterOffsetBegin'] - block['tokens'][0]['characterOffsetBegin']
+                    # add whitespace based on offsets of originalText
                     text += (' ' * (i - len(text))) + t['originalText'] if len(text) != i else t['originalText']
                 parts['text'] = text
             else:
@@ -672,14 +656,14 @@ class CoreNLPServer(object):
             parts['position'] = position
 
             # Add full dependency tree parse to document meta
-            if 'parse' in block: #self.parse_tree:
+            if 'parse' in block and document:
                 tree = ' '.join(block['parse'].split())
                 if 'tree' not in document.meta:
                     document.meta['tree'] = {}
                 document.meta['tree'][position] = tree
 
             # Link the sentence to its parent document object
-            parts['document'] = document
+            parts['document'] = document if document else None
 
             # Add null entity array (matching null for CoreNLP)
             parts['entity_cids'] = ['O' for _ in parts['words']]
@@ -687,7 +671,19 @@ class CoreNLPServer(object):
 
             # Assign the stable id as document's stable id plus absolute character offset
             abs_sent_offset_end = abs_sent_offset + parts['char_offsets'][-1] + len(parts['words'][-1])
-            parts['stable_id'] = construct_stable_id(document, 'sentence', abs_sent_offset, abs_sent_offset_end)
+            if document:
+                parts['stable_id'] = construct_stable_id(document, 'sentence', abs_sent_offset, abs_sent_offset_end)
             position += 1
             yield parts
 
+    @staticmethod
+    def validate_response(content):
+        '''
+        Report common parsing errors
+        :param content:
+        :return:
+        '''
+        if content.startswith("Request is too long"):
+            raise ValueError("File too long. Max character count is 100K.")
+        if content.startswith("CoreNLP request timed out"):
+            raise ValueError("CoreNLP request timed out on file.")

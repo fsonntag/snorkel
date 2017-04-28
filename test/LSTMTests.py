@@ -1,7 +1,7 @@
 import os, sys, unittest, pickle
 
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
-from snorkel.snorkel import *
+from snorkel import *
 
 os.chdir(sys.path[0])
 
