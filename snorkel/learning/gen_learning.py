@@ -40,7 +40,7 @@ class NaiveBayes(NoiseAwareModel):
         print("=" * 80)
         Xt = X.transpose()
         Xt_abs = sparse_abs(Xt) if sparse.issparse(Xt) else np.abs(Xt)
-        w0 = w0 if w0 is not None else np.ones(M)
+        w0     = w0 if w0 is not None else np.ones(M)
 
         # Initialize training
         w = w0.copy()
@@ -54,20 +54,20 @@ class NaiveBayes(NoiseAwareModel):
         for step in range(n_iter):
 
             # Get the expected LF accuracy
-            t, f = sample_data(X, w, n_samples=n_samples) if sample else exact_data(X, w, evidence)
+            t,f = sample_data(X, w, n_samples=n_samples) if sample else exact_data(X, w, evidence)
             p_correct, n_pred = transform_sample_stats(Xt, t, f, Xt_abs)
 
             # Get the "empirical log odds"; NB: this assumes one is correct, clamp is for sampling...
             l = np.clip(log_odds(p_correct), -10, 10)
 
             # SGD step with normalization by the number of samples
-            g0 = (n_pred * (w - l)) / np.sum(n_pred)
+            g0 = (n_pred*(w - l)) / np.sum(n_pred)
 
             # Momentum term for faster training
-            g = 0.95 * g0 + 0.05 * g
+            g = 0.95*g0 + 0.05*g
 
             # Check for convergence
-            wn = np.linalg.norm(w, ord=2)
+            wn     = np.linalg.norm(w, ord=2)
             g_size = np.linalg.norm(g, ord=2)
             if step % 250 == 0 and verbose:
                 print("\tLearning epoch = {}\tGradient mag. = {:.6f}".format(step, g_size))
@@ -280,13 +280,13 @@ class GenerativeModel(object):
 
     def score(self, session, X_test, test_labels, gold_candidate_set=None, b=0.5, set_unlabeled_as_neg=True,
               display=True, scorer=MentionScorer, **kwargs):
-
+        
         # Get the test candidates
         test_candidates = [X_test.get_candidate(session, i) for i in range(X_test.shape[0])]
 
         # Initialize scorer
-        s = scorer(test_candidates, test_labels, gold_candidate_set)
-        test_marginals = self.marginals(X_test, **kwargs)
+        s               = scorer(test_candidates, test_labels, gold_candidate_set)
+        test_marginals  = self.marginals(X_test, **kwargs)
 
         return s.score(test_marginals, train_marginals=None, b=b,
                        set_unlabeled_as_neg=set_unlabeled_as_neg, display=display)
