@@ -70,7 +70,7 @@ class Brat(object):
         """
         config_path = "{}/{}".format(input_dir, "annotation.conf")
         if not os.path.exists(config_path):
-            print>> sys.stderr, "Fatal error: missing 'annotation.conf' file"
+            print("Fatal error: missing 'annotation.conf' file", file=sys.stderr)
             return
 
         # load brat config (this defines relation and argument types)
@@ -107,11 +107,11 @@ class Brat(object):
         snorkel_types = {type(c): 1 for c in candidates}
 
         for name in doc_index:
-            print name
+            print(name)
             for c in doc_index[name]:
-                print c
+                print(c)
                 text = "".join([s.text for s in c[0].sentence.document.sentences])
-                print text
+                print(text)
 
             fp = "{}/{}".format(output_dir,name)
 
@@ -167,12 +167,11 @@ class Brat(object):
                 if anno_id_prefix == Brat.TEXT_BOUND_ID:
                     anno_id, entity, text = row
                     entity_type = entity.split()[0]
-                    spans = map(lambda x: map(int, x.split()),
-                                entity.lstrip(entity_type).split(";"))
+                    spans = [list(map(int, x.split())) for x in entity.lstrip(entity_type).split(";")]
 
                     # discontinuous mentions
                     if len(spans) != 1:
-                        print>> sys.stderr, "NotImplementedError: Discontinuous Spans"
+                        print("NotImplementedError: Discontinuous Spans", file=sys.stderr)
                         continue
 
                     entity = []
@@ -186,7 +185,7 @@ class Brat(object):
                                      "idx_span":(word_offset, word_offset + len(tokens)), "span":word_mention}
                             entity += [parts]
                         else:
-                            print>> sys.stderr, "SUB SPAN ERROR", text, (i, j)
+                            print("SUB SPAN ERROR", text, (i, j), file=sys.stderr)
                             continue
 
                     # TODO: we assume continuous spans here
@@ -202,11 +201,11 @@ class Brat(object):
                     annotations[anno_id] = (rela_type, arg1, arg2)
 
                 elif anno_id_prefix == Brat.EVENT_ID:
-                    print>> sys.stderr, "NotImplementedError: Events"
+                    print("NotImplementedError: Events", file=sys.stderr)
                     raise NotImplementedError
 
                 elif anno_id_prefix == Brat.ATTRIB_ID:
-                    print>> sys.stderr, "NotImplementedError: Attributes"
+                    print("NotImplementedError: Attributes", file=sys.stderr)
 
         return annotations
 
@@ -220,7 +219,7 @@ class Brat(object):
         for class_name in config['entities']:
             try:
                 self.subclasses[class_name] = candidate_subclass(class_name, [class_name.lower()])
-                print 'Entity({},[{}])'.format(class_name, class_name.lower())
+                print(('Entity({},[{}])'.format(class_name, class_name.lower())))
             except:
                 pass
 
@@ -233,12 +232,12 @@ class Brat(object):
 
             # TODO: Assume simple relation types *without* multiple argument types
             if (len(arg1) > 1 or len(arg2) > 1) and arg1 != arg2:
-                print>>sys.stderr,"Error: Snorkel does not support multiple argument types"
+                print("Error: Snorkel does not support multiple argument types", file=sys.stderr)
 
             try:
                 args = sorted(set(arg1 + arg2))
                 self.subclasses[name] = candidate_subclass(name, args)
-                print 'Relation({},{})'.format(name, args)
+                print('Relation({},{})'.format(name, args))
             except:
                 pass
 
@@ -334,7 +333,7 @@ class Brat(object):
                 for c,et in zip(contexts,class_name.__argnames__):
                     stable_id = c.split(":")
                     name, offsets = stable_id[0], stable_id[-2:]
-                    span = map(int, offsets)
+                    span = list(map(int, offsets))
                     if name not in abs_offsets:
                         doc = self.session.query(Document).filter(Document.name==name).one()
                         abs_offsets[name] = abs_doc_offsets(doc)
@@ -387,6 +386,6 @@ def abs_doc_offsets(doc):
     for sent in doc.sentences:
         stable_id = sent.stable_id.split(":")
         name, offsets = stable_id[0], stable_id[-2:]
-        offsets = map(int, offsets)
+        offsets = list(map(int, offsets))
         abs_char_offsets.append(offsets)
     return abs_char_offsets
