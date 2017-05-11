@@ -101,24 +101,31 @@ class Brat(object):
         :param output_dir:
         :return:
         """
+        os.makedirs(output_dir, exist_ok=True)
         candidates = self.session.query(Candidate).filter(Candidate.split == 0).all()
         doc_index = _group_by_document(candidates)
-        snorkel_types = {type(c): 1 for c in candidates}
+        snorkel_types = {type(c) for c in candidates}
+        configuration_string = self._create_config_from_candidate_types(snorkel_types)
+
+        with open(os.path.join(output_dir, 'annotation.conf'), 'w') as conf_file:
+            conf_file.write(configuration_string)
 
         for name in doc_index:
             with open(os.path.join(output_dir, f'{name}.txt'), 'w') as text_file:
-                # TODO get the text
-                text_file.write(doc_index[name])
-            print(name)
+                text = "".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
+                text_file.write(text)
 
             with open(os.path.join(output_dir, f'{name}.ann'), 'w') as ann_file:
-                lines = []
+                annotation_tuples = []
                 for i, c in enumerate(doc_index[name]):
-                    print(c)
-                    text = "".join([s.text for s in c[0].sentence.document.sentences])
-                    print(text)
-                    line = f'T{i + 1}	{c.type} {c.span.start} {c.span.end}	{c.name}'
-                    lines.add(line)
+                    sentence_start = sum(len(sentence.text) for sentence in c[0].sentence.document.sentences[:c[0].sentence.position])
+                    char_start = sentence_start + c[0].char_start
+                    char_end = sentence_start + c[0].char_end + 1
+                    text = c[0].get_span()
+                    annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
+
+                annotation_tuples.sort(key=lambda tuple: tuple[1])
+                lines = [f'T{i + 1}\t{annotation_tuple[0]} {annotation_tuple[1]} {annotation_tuple[2]}\t{annotation_tuple[3]}\n'for i, annotation_tuple in enumerate(annotation_tuples)]
                 ann_file.writelines(lines)
 
     def _parse_documents(self, input_path, num_threads, parser):
@@ -284,6 +291,19 @@ class Brat(object):
         entity_defs = "\n".join(arg_types)
         rela_def = "Arg1:{}, Arg2:{}".format(*arg_types) if len(arg_types) == 2 else ""
         return self.brat_tmpl.format(entity_defs, rela_def, "", "")
+
+    def _create_config_from_candidate_types(self, candidate_types):
+        """
+        Export a minimal BRAT configuration schema defining
+        a multiple argument types        
+
+        :param candidate_types:
+        :return:
+        """
+        arg_types = [candidate_type.__name__ for candidate_type in candidate_types]
+
+        entity_defs = "\n".join(arg_types)
+        return self.brat_tmpl.format(entity_defs, "", "", "")
 
     def _create_candidates(self, annotations, annotator_name, clear=True):
         """
