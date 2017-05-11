@@ -102,7 +102,7 @@ class Brat(object):
         :return:
         """
         os.makedirs(output_dir, exist_ok=True)
-        candidates = self.session.query(Candidate).filter(Candidate.split == 0).all()
+        candidates = self.session.query(Candidate).filter(Candidate.split == 0).filter(Candidate.training_marginal > 0.5).all()
         doc_index = _group_by_document(candidates)
         snorkel_types = {type(c) for c in candidates}
         configuration_string = self._create_config_from_candidate_types(snorkel_types)
