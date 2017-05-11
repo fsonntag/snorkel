@@ -95,7 +95,6 @@ class Brat(object):
         # create candidates
         self._create_candidates(annotations, annotator_name)
 
-
     def export_project(self, output_dir, positive_only_labels=True):
         """
 
@@ -107,15 +106,20 @@ class Brat(object):
         snorkel_types = {type(c): 1 for c in candidates}
 
         for name in doc_index:
+            with open(os.path.join(output_dir, f'{name}.txt'), 'w') as text_file:
+                # TODO get the text
+                text_file.write(doc_index[name])
             print(name)
-            for c in doc_index[name]:
-                print(c)
-                text = "".join([s.text for s in c[0].sentence.document.sentences])
-                print(text)
 
-            fp = "{}/{}".format(output_dir,name)
-
-            break
+            with open(os.path.join(output_dir, f'{name}.ann'), 'w') as ann_file:
+                lines = []
+                for i, c in enumerate(doc_index[name]):
+                    print(c)
+                    text = "".join([s.text for s in c[0].sentence.document.sentences])
+                    print(text)
+                    line = f'T{i + 1}	{c.type} {c.span.start} {c.span.end}	{c.name}'
+                    lines.add(line)
+                ann_file.writelines(lines)
 
     def _parse_documents(self, input_path, num_threads, parser):
         """
@@ -181,8 +185,8 @@ class Brat(object):
                             tokens = mention.split()
                             sent_id, word_offset = char_idx[i]
                             word_mention = doc[sent_id][word_offset:word_offset + len(tokens)]
-                            parts = {"sent_id":sent_id,"char_start":i,"char_end":j, "entity_type":entity_type,
-                                     "idx_span":(word_offset, word_offset + len(tokens)), "span":word_mention}
+                            parts = {"sent_id": sent_id, "char_start": i, "char_end": j, "entity_type": entity_type,
+                                     "idx_span": (word_offset, word_offset + len(tokens)), "span": word_mention}
                             entity += [parts]
                         else:
                             print("SUB SPAN ERROR", text, (i, j), file=sys.stderr)
@@ -281,7 +285,6 @@ class Brat(object):
         rela_def = "Arg1:{}, Arg2:{}".format(*arg_types) if len(arg_types) == 2 else ""
         return self.brat_tmpl.format(entity_defs, rela_def, "", "")
 
-
     def _create_candidates(self, annotations, annotator_name, clear=True):
         """
 
@@ -296,8 +299,8 @@ class Brat(object):
                 relations = [key for key in annotations[name] if key[0] == Brat.RELATION_ID]
 
                 # create span labels
-                spans = {key:"{}::span:{}:{}".format(name, annotations[name][key]["char_start"],
-                                                     annotations[name][key]["char_end"]) for key in spans}
+                spans = {key: "{}::span:{}:{}".format(name, annotations[name][key]["char_start"],
+                                                      annotations[name][key]["char_end"]) for key in spans}
                 for key in spans:
                     entity_type = annotations[name][key]['entity_type']
                     stable_labels_by_type[entity_type].append(spans[key])
@@ -306,7 +309,7 @@ class Brat(object):
                 for key in relations:
                     rela_type, arg1, arg2 = annotations[name][key]
                     rela = sorted([[annotations[name][arg1]["entity_type"], spans[arg1]],
-                                    [annotations[name][arg2]["entity_type"],spans[arg2]]])
+                                   [annotations[name][arg2]["entity_type"], spans[arg2]]])
                     stable_labels_by_type[rela_type].append("~~".join(zip(*rela)[1]))
 
         # create stable labels
@@ -330,17 +333,17 @@ class Brat(object):
             for et in stable_labels_by_type[class_type]:
                 contexts = et.split('~~')
                 spans = []
-                for c,et in zip(contexts,class_name.__argnames__):
+                for c, et in zip(contexts, class_name.__argnames__):
                     stable_id = c.split(":")
                     name, offsets = stable_id[0], stable_id[-2:]
                     span = list(map(int, offsets))
                     if name not in abs_offsets:
-                        doc = self.session.query(Document).filter(Document.name==name).one()
+                        doc = self.session.query(Document).filter(Document.name == name).one()
                         abs_offsets[name] = abs_doc_offsets(doc)
 
-                    for j,offset in enumerate(abs_offsets[name]):
+                    for j, offset in enumerate(abs_offsets[name]):
                         if span[0] >= offset[0] and span[1] <= offset[1]:
-                            tc = TemporarySpan(char_start=span[0]-offset[0], char_end=span[1]-offset[0]-1,
+                            tc = TemporarySpan(char_start=span[0] - offset[0], char_end=span[1] - offset[0] - 1,
                                                sentence=doc.sentences[j])
                             tc.load_id_or_insert(self.session)
                             spans.append(tc)
