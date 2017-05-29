@@ -1,7 +1,7 @@
 import numpy as np
 
-from rnn_base import RNNBase
-from utils import candidate_to_tokens
+from snorkel.contrib.rnn.rnn_base import RNNBase
+from snorkel.contrib.rnn.utils import candidate_to_tokens
 
 
 def mark(l, h, idx):

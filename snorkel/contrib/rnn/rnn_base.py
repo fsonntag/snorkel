@@ -4,8 +4,8 @@ import tensorflow as tf
 import tensorflow.contrib.rnn as rnn
 import warnings
 
+from snorkel.contrib.rnn.utils import f1_score, get_bi_rnn_output, SymbolTable
 from snorkel.learning import LabelBalancer, TFNoiseAwareModel
-from utils import f1_score, get_bi_rnn_output, SymbolTable
 from time import time
 
 
