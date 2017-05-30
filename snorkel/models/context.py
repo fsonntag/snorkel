@@ -1,4 +1,5 @@
 from .meta import SnorkelBase, snorkel_postgres
+
 from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import relationship, backref
@@ -122,6 +123,22 @@ class Sentence(Context):
 
     def __repr__(self):
         return "Sentence(%s,%s,%s)" % (self.document, self.position, self.text.encode('utf-8'))
+
+
+class NoisyTaggedSentence(SnorkelBase):
+    __tablename__ = 'noisy_tagged_sentence'
+    id = Column(Integer, primary_key=True)
+    sentence_id = Column(Integer, ForeignKey('sentence.id', ondelete='CASCADE'))
+    sentence = relationship('Sentence', backref=backref('noisy_tagged_sentences', cascade='all, delete-orphan'),
+                            foreign_keys=sentence_id)
+    if snorkel_postgres:
+        candidate_ids = Column(postgresql.ARRAY(Integer), nullable=False)
+    else:
+        candidate_ids = Column(PickleType, nullable=False)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'noisy_tagged_sentence',
+    }
 
 
 class TemporaryContext(object):
