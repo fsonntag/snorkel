@@ -2,6 +2,8 @@
 import numpy as np
 from collections import defaultdict
 
+from scipy.special import logit
+
 DEFAULT_MU = 1e-6
 DEFAULT_RATE = 0.01
 DEFAULT_ALPHA = 0.5
@@ -67,7 +69,7 @@ def block_compute_lf_accs(blocks, w, num_lfs):
     # print accs
     # print "---"
 
-    p_correct = (1. / (n_pred + 1e-8)) * accs
+    p_correct = (1. / (n_pred + 1e-16)) * accs
 
     # if DEBUG:
     #     if np.isnan(np.sum(accs)) or np.isnan(np.sum(n_pred)) or np.isnan(np.sum(p_correct)):
@@ -235,7 +237,8 @@ class MnLogReg(NoiseAwareModel):
             # print p_correct
             # print n_pred
             # Get the "empirical log odds"; NB: this assumes one is correct, clamp is for sampling...
-            l = np.clip(log_odds(p_correct), -10, 10).flatten()
+            # l = np.clip(log_odds(p_correct), -10, 10).flatten()
+            l = np.clip(logit(p_correct), -10, 10).flatten()
 
             # print "l", l
 
