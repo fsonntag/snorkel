@@ -167,7 +167,7 @@ class Brat(object):
             for i, noisy_tagged_sentences in enumerate(doc_index[name]):
                 # write the text
                 with open(os.path.join(output_dir, f'{name}_{i}.txt'), 'w') as text_file:
-                    text = "".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
+                    text = " ".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
                     text_file.write(text)
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
