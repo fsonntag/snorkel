@@ -9,8 +9,8 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from snorkel.models import NoisyTaggedSentence
+from snorkel.parsers import TextDocPreprocessor, CorpusParser
 from ...models import Candidate, StableLabel, Document, TemporarySpan, candidate_subclass
-from ...parser import TextDocPreprocessor, CorpusParser
 
 
 class Brat(object):
