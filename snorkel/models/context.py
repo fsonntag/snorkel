@@ -69,6 +69,7 @@ class Sentence(Context):
     if snorkel_postgres:
         words        = Column(postgresql.ARRAY(String), nullable=False)
         char_offsets = Column(postgresql.ARRAY(Integer), nullable=False)
+        abs_char_offsets = Column(postgresql.ARRAY(Integer), nullable=False)
         lemmas       = Column(postgresql.ARRAY(String))
         pos_tags     = Column(postgresql.ARRAY(String))
         ner_tags     = Column(postgresql.ARRAY(String))
@@ -79,6 +80,7 @@ class Sentence(Context):
     else:
         words        = Column(PickleType, nullable=False)
         char_offsets = Column(PickleType, nullable=False)
+        abs_char_offsets = Column(PickleType, nullable=False)
         lemmas       = Column(PickleType)
         pos_tags     = Column(PickleType)
         ner_tags     = Column(PickleType)

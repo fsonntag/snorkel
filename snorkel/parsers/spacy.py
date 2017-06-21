@@ -107,7 +107,7 @@ class Spacy(Parser):
         :return:
         '''
 
-        doc = self.model.tokenizer(text)
+        doc = self.model(text)
         for proc in self.pipeline:
             proc(doc)
         assert doc.is_parsed
