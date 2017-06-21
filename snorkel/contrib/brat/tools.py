@@ -1,24 +1,17 @@
+import codecs
+import glob
+import itertools
 import os
 import re
 import sys
-import glob
-import codecs
-
-import shutil
-
-import itertools
-from sqlalchemy.sql import select
 from collections import defaultdict
 
 from tqdm import tqdm
 
-from settings import settings
-from spansets import NoisyTaggedSentence
-from ...db_helpers import reload_annotator_labels
+from snorkel.models import NoisyTaggedSentence
+from ...models import Candidate, StableLabel, Document, TemporarySpan, candidate_subclass
 from ...parser import TextDocPreprocessor, CorpusParser
-from ...models import Candidate, StableLabel, Document, TemporarySpan, Sentence, candidate_subclass
 
-NUM_SENTENCES_GENERATED = settings['num_sentences_to_generate']
 
 class Brat(object):
     """
@@ -126,7 +119,7 @@ class Brat(object):
         for name in tqdm(doc_index):
             # write the text
             with open(os.path.join(output_dir, f'{name}.txt'), 'w') as text_file:
-                text = "".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
+                text = "\n".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
                 text_file.write(text)
 
             # write the annotation file
@@ -135,17 +128,20 @@ class Brat(object):
                 for c in doc_index[name]:
                     if positive_only_labels and c.training_marginal <= 0.5:
                         continue
-                    sentence_start = sum(len(sentence.text) for sentence in c[0].sentence.document.sentences[:c[0].sentence.position])
+                    sentence_start = sum(
+                        len(sentence.text) for sentence in c[0].sentence.document.sentences[:c[0].sentence.position])
                     char_start = sentence_start + c[0].char_start
                     char_end = sentence_start + c[0].char_end + 1
                     text = c[0].get_span()
                     annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
 
                 annotation_tuples.sort(key=lambda tuple: tuple[1])
-                lines = [f'T{i + 1}\t{annotation_tuple[0]} {annotation_tuple[1]} {annotation_tuple[2]}\t{annotation_tuple[3]}\n'for i, annotation_tuple in enumerate(annotation_tuples)]
+                lines = [
+                    f'T{i + 1}\t{annotation_tuple[0]} {annotation_tuple[1]} {annotation_tuple[2]}\t{annotation_tuple[3]}\n'
+                    for i, annotation_tuple in enumerate(annotation_tuples)]
                 ann_file.writelines(lines)
 
-    def export_by_noisy_tagged_sentences(self, output_dir):
+    def export_by_noisy_tagged_sentences(self, output_dir, num_sentences):
         """
                 :param output_dir:                
                 :return:
@@ -154,7 +150,7 @@ class Brat(object):
         os.makedirs(output_dir, exist_ok=True)
         noisy_tagged_sentences = self.session.query(NoisyTaggedSentence).all()
         print('Grouping candidates by document')
-        doc_index = _group_noisy_sentences_by_document(noisy_tagged_sentences)
+        doc_index = _group_noisy_sentences_by_document(noisy_tagged_sentences, num_sentences)
         candidates = self.session.query(Candidate).all()
         snorkel_types = {type(c) for c in candidates}
         configuration_string = self._create_config_from_candidate_types(snorkel_types)
@@ -171,12 +167,14 @@ class Brat(object):
                     text_file.write(text)
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
-                    candidate_ids = list(itertools.chain.from_iterable([s.candidate_ids for s in noisy_tagged_sentences]))
+                    candidate_ids = list(
+                        itertools.chain.from_iterable([s.candidate_ids for s in noisy_tagged_sentences]))
                     annotation_tuples = []
                     candidates = self.session.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
                     for c in candidates:
                         sentence_start = sum(
-                            len(sentence.text) for sentence in c[0].sentence.document.sentences[:c[0].sentence.position])
+                            len(sentence.text) for sentence in
+                            c[0].sentence.document.sentences[:c[0].sentence.position])
                         char_start = sentence_start + c[0].char_start
                         char_end = sentence_start + c[0].char_end + 1
                         text = c[0].get_span()
@@ -458,20 +456,20 @@ def _group_candidates_by_document(candidates):
         doc_index[name].append(c)
     return doc_index
 
-def _group_noisy_sentences_by_document(noisy_tagged_sentences):
+
+def _group_noisy_sentences_by_document(noisy_tagged_sentences, num_sentences):
     doc_index = defaultdict(list)
     for t in noisy_tagged_sentences:
         name = t.sentence.document.name
         doc_index[name].append(t)
     for name, noisy_tagged_sentences in doc_index.items():
         noisy_tagged_sentences.sort(key=lambda s: s.sentence.position)
-        doc_index[name] = [[noisy_tagged_sentences[i + j * NUM_SENTENCES_GENERATED]
+        doc_index[name] = [[noisy_tagged_sentences[i + j * num_sentences]
                             for j
-                            in range(int(len(noisy_tagged_sentences)/NUM_SENTENCES_GENERATED))]
+                            in range(int(len(noisy_tagged_sentences) / num_sentences))]
                            for i
-                           in range(NUM_SENTENCES_GENERATED)]
+                           in range(num_sentences)]
     return doc_index
-
 
 
 def abs_doc_offsets(doc):
