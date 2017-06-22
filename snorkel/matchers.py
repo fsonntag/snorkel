@@ -83,7 +83,14 @@ class NgramMatcher(Matcher):
         """Gets a tuple that identifies a span for the specific candidate class that c belongs to"""
         return (c.char_start, c.char_end)
 
-first_char_lower = lambda s: s[:1].lower() + s[1:] if s else ''
+
+def first_char_lower(s):
+    if not s:
+        return ''
+    if s[0].islower():
+        return s
+    return s[:1].lower() + s[1:]
+
 
 class DictionaryMatch(NgramMatcher):
     """Selects candidate Ngrams that match against a given list d"""
@@ -92,14 +99,11 @@ class DictionaryMatch(NgramMatcher):
         self.ignore_case = self.opts.get('ignore_case', False)
         self.attrib      = self.opts.get('attrib', WORDS)
         self.reverse     = self.opts.get('reverse', False)
-        self.stop_words = self.opts.get('stop_words', {})
         try:
             if self.ignore_first_case:
-                self.d = set(first_char_lower(w) if not w.isupper() else w for w in self.opts['d'])
-                self.d -= self.stop_words
+                self.d = frozenset(first_char_lower(w) if not w.isupper() else w for w in self.opts['d'])
             else:
-                self.d = set(w.lower() if self.ignore_case and not w.isupper() else w for w in self.opts['d'])
-                self.d -= self.stop_words
+                self.d = frozenset(w.lower() if self.ignore_case and not w.isupper() else w for w in self.opts['d'])
         except KeyError:
             raise Exception("Please supply a dictionary (list of phrases) d as d=d.")
 
@@ -120,7 +124,7 @@ class DictionaryMatch(NgramMatcher):
 
     def _f(self, c):
         p = c.get_attrib_span(self.attrib)
-        p = first_char_lower(p) if self.ignore_first_case else p
+        p = first_char_lower(p) if self.ignore_first_case and not p.isupper() else p
         p = p.lower() if self.ignore_case else p
         p = self._stem(p) if self.stemmer is not None else p
         return (not self.reverse) if p in self.d else self.reverse
@@ -134,7 +138,7 @@ class LambdaFunctionMatch(NgramMatcher):
             self.func = self.opts['func']
         except KeyError:
             raise Exception("Please supply a dictionary (list of phrases) d as d=d.")
-    
+
     def _f(self, c):
         """The internal (non-composed) version of filter function f"""
         return self.func(c)
