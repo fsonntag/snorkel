@@ -231,7 +231,7 @@ class StanfordCoreNLPServer(Parser):
         except Timeout as e:
             print("Timeout error", file=sys.stderr)
             print(f"Timeout error on :{text}")
-            return
+            raise ValueError("Timeout")
 
         # check for parsing error messages
         StanfordCoreNLPServer.validate_response(content)
