@@ -11,6 +11,8 @@ import warnings
 from subprocess import Popen,PIPE
 from collections import defaultdict
 
+from requests import Timeout
+
 from .parser import Parser, URLParserConnection
 from ..models import Candidate, Context, Document, Sentence, construct_stable_id
 from ..utils import sort_X_on_Y
@@ -225,6 +227,11 @@ class StanfordCoreNLPServer(Parser):
         except socket.error as e:
             print("Socket error", file=sys.stderr)
             raise ValueError("Socket Error")
+
+        except Timeout as e:
+            print("Timeout error", file=sys.stderr)
+            print(f"Timeout error on :{text}")
+            return
 
         # check for parsing error messages
         StanfordCoreNLPServer.validate_response(content)

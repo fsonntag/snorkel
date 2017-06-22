@@ -94,7 +94,7 @@ class URLParserConnection(ParserConnection):
         :param timeout:
         :return:
         '''
-        resp = self.request.post(url, data=data, allow_redirects=allow_redirects)
+        resp = self.request.post(url, data=data, allow_redirects=allow_redirects, timeout=10)
         return resp.content.strip()
 
     def parse(self, document, text):
