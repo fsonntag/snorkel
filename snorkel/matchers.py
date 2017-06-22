@@ -99,11 +99,14 @@ class DictionaryMatch(NgramMatcher):
         self.ignore_case = self.opts.get('ignore_case', False)
         self.attrib      = self.opts.get('attrib', WORDS)
         self.reverse     = self.opts.get('reverse', False)
+        self.stop_words = self.opts.get('stop_words', {})
         try:
             if self.ignore_first_case:
-                self.d = frozenset(first_char_lower(w) if not w.isupper() else w for w in self.opts['d'])
+                self.d = set(first_char_lower(w) if not w.isupper() else w for w in self.opts['d'])
+                self.d -= self.stop_words
             else:
-                self.d = frozenset(w.lower() if self.ignore_case and not w.isupper() else w for w in self.opts['d'])
+                self.d = set(w.lower() if self.ignore_case and not w.isupper() else w for w in self.opts['d'])
+                self.d -= self.stop_words
         except KeyError:
             raise Exception("Please supply a dictionary (list of phrases) d as d=d.")
 
