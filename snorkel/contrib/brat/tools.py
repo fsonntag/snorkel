@@ -162,9 +162,12 @@ class Brat(object):
         for name in tqdm(doc_index):
             for i, noisy_tagged_sentences in enumerate(doc_index[name]):
                 # write the text
-                with open(os.path.join(output_dir, f'{name}_{i}.txt'), 'w') as text_file:
-                    text = " ".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
-                    text_file.write(text)
+                if i == 0:
+                    with open(os.path.join(output_dir, f'{name}_{i}.txt'), 'w') as text_file:
+                        text = " ".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
+                        text_file.write(text)
+                else:
+                    os.symlink(os.path.join(output_dir, f'{name}_{i}.txt'), os.path.join(output_dir, f'{name}_{0}.txt'))
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
                     candidate_ids = list(
