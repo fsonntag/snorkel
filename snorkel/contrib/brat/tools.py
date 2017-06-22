@@ -167,7 +167,7 @@ class Brat(object):
                         text = " ".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
                         text_file.write(text)
                 else:
-                    os.symlink(os.path.join(output_dir, f'{name}_{i}.txt'), os.path.join(output_dir, f'{name}_{0}.txt'))
+                    os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'), os.path.join(output_dir, f'{name}_{i}.txt'))
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
                     candidate_ids = list(
