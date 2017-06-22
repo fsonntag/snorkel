@@ -98,7 +98,7 @@ class Brat(object):
         # create candidates
         self._create_candidates(annotations, annotator_name)
 
-    def export_by_candidate_marginals(self, output_dir, positive_only_labels=True):
+    def export_by_candidate_marginals(self, output_dir, entity_types, positive_only_labels=True):
         """
         :param output_dir:
         :positive_only_labels
@@ -109,8 +109,10 @@ class Brat(object):
         candidates = self.session.query(Candidate).filter(Candidate.split == 0).all()
         print('Grouping candidates by document')
         doc_index = _group_candidates_by_document(candidates)
-        snorkel_types = {type(c) for c in candidates}
-        configuration_string = self._create_config_from_candidate_types(snorkel_types)
+        # snorkel_types = {type(c) for c in candidates}
+        configuration_string = self._create_config_from_candidate_types(entity_types)
+
+        entity_type_mapping = {i + 1: type for i, type in enumerate(entity_types)}
 
         with open(os.path.join(output_dir, 'annotation.conf'), 'w') as conf_file:
             conf_file.write(configuration_string)
@@ -133,7 +135,8 @@ class Brat(object):
                     char_start = sentence_start + c[0].char_start
                     char_end = sentence_start + c[0].char_end + 1
                     text = c[0].get_span()
-                    annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
+                    for label in c.labels:
+                        annotation_tuples.append((entity_type_mapping[label.value], char_start, char_end, text))
 
                 annotation_tuples.sort(key=lambda tuple: tuple[1])
                 lines = [
@@ -358,9 +361,9 @@ class Brat(object):
         :param candidate_types:
         :return:
         """
-        arg_types = [candidate_type.__name__ for candidate_type in candidate_types]
+        # arg_types = [candidate_type.__name__ for candidate_type in candidate_types]
 
-        entity_defs = "\n".join(arg_types)
+        entity_defs = "\n".join(candidate_types)
         return self.brat_tmpl.format(entity_defs, "", "", "")
 
     def _create_candidates(self, annotations, annotator_name, clear=True):
