@@ -143,6 +143,23 @@ class NoisyTaggedSentence(SnorkelBase):
     }
 
 
+class EmbeddingNNInformation(SnorkelBase):
+    __tablename__ = 'embedding_nn_information'
+    id = Column(Integer, primary_key=True)
+    text = Column(Text, nullable=False)
+    in_lexicon = Column(Integer, nullable=False)
+    if snorkel_postgres:
+        nns = Column(postgresql.ARRAY(Text), nullable=False)
+        nn_in_lexicon = Column(postgresql.ARRAY(Integer), nullable=False)
+    else:
+        nns = Column(PickleType, nullable=False)
+        nn_in_lexicon = Column(PickleType, nullable=False)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'embedding_nn_information',
+    }
+
+
 class TemporaryContext(object):
     """
     A context which does not incur the overhead of a proper ORM-based Context object.
