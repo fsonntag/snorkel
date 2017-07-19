@@ -361,9 +361,10 @@ class Brat(object):
         :param candidate_types:
         :return:
         """
-        arg_types = [candidate_type.__name__ for candidate_type in candidate_types]
+        if type(candidate_types[0]) != str:
+            candidate_types = [candidate_type.__name__ for candidate_type in candidate_types]
 
-        entity_defs = "\n".join(arg_types)
+        entity_defs = "\n".join(candidate_types)
         return self.brat_tmpl.format(entity_defs, "", "", "")
 
     def _create_candidates(self, annotations, annotator_name, clear=True):
