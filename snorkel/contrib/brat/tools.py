@@ -213,7 +213,7 @@ class BratProject(object):
                 # write the text
                 if i == 0:
                     with open(os.path.join(output_dir, f'{name}_{i}.txt'), 'w') as text_file:
-                        text = " ".join(
+                        text = "\n".join(
                             [sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
                         text_file.write(text)
                 else:
