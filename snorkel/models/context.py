@@ -337,6 +337,39 @@ class Span(Context, TemporarySpan):
     def __hash__(self):
         return id(self)
 
+    
+class NoisyTaggedSentence(SnorkelBase):
+    __tablename__ = 'noisy_tagged_sentence'
+    id = Column(Integer, primary_key=True)
+    sentence_id = Column(Integer, ForeignKey('sentence.id', ondelete='CASCADE'))
+    sentence = relationship('Sentence', backref=backref('noisy_tagged_sentences', cascade='all, delete-orphan'),
+                            foreign_keys=sentence_id)
+    if snorkel_postgres:
+        candidate_ids = Column(postgresql.ARRAY(Integer), nullable=False)
+    else:
+        candidate_ids = Column(PickleType, nullable=False)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'noisy_tagged_sentence',
+    }
+
+
+class EmbeddingNNInformation(SnorkelBase):
+    __tablename__ = 'embedding_nn_information'
+    id = Column(Integer, primary_key=True)
+    text = Column(Text, nullable=False)
+    in_lexicon = Column(Integer, nullable=False)
+    if snorkel_postgres:
+        nns = Column(postgresql.ARRAY(Text), nullable=False)
+        nn_in_lexicon = Column(postgresql.ARRAY(Integer), nullable=False)
+    else:
+        nns = Column(PickleType, nullable=False)
+        nn_in_lexicon = Column(PickleType, nullable=False)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'embedding_nn_information',
+    }
+
 
 def split_stable_id(stable_id):
     """
