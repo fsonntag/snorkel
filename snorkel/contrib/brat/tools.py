@@ -172,20 +172,21 @@ class Brat(object):
                     os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'), os.path.join(output_dir, f'{name}_{i}.txt'))
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
-                    candidate_ids = list(
+                    candidate_ids = set(
                         itertools.chain.from_iterable(
                             [[candidate_id for candidate_id in s.candidate_ids if candidate_id in type_candidate_ids]
                              for s in noisy_tagged_sentences]))
                     annotation_tuples = []
-                    candidates = self.session.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
-                    for c in candidates:
-                        sentence_start = sum(
-                            len(sentence.text) for sentence in
-                            c[0].sentence.document.sentences[:c[0].sentence.position])
-                        char_start = sentence_start + c[0].char_start
-                        char_end = sentence_start + c[0].char_end + 1
-                        text = c[0].get_span()
-                        annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
+                    if candidate_ids:
+                        candidates = self.session.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
+                        for c in candidates:
+                            sentence_start = sum(
+                                len(sentence.text) for sentence in
+                                c[0].sentence.document.sentences[:c[0].sentence.position])
+                            char_start = sentence_start + c[0].char_start
+                            char_end = sentence_start + c[0].char_end + 1
+                            text = c[0].get_span()
+                            annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
 
                     annotation_tuples.sort(key=lambda tuple: tuple[1])
                     lines = [
