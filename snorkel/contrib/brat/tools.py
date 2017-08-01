@@ -176,10 +176,8 @@ class BratProject(object):
                 for c in doc_index[name]:
                     if positive_only_labels and c.training_marginal <= 0.5:
                         continue
-                    sentence_start = sum(
-                        len(sentence.text) for sentence in c[0].sentence.document.sentences[:c[0].sentence.position])
-                    char_start = sentence_start + c[0].char_start
-                    char_end = sentence_start + c[0].char_end + 1
+                    char_start, char_end = map(int, c[0].stable_id.split(":")[-2:])
+                    char_end += 1
                     text = c[0].get_span()
                     annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
 
@@ -228,11 +226,8 @@ class BratProject(object):
                     if candidate_ids:
                         candidates = self.session.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
                         for c in candidates:
-                            sentence_start = sum(
-                                len(sentence.text) for sentence in
-                                c[0].sentence.document.sentences[:c[0].sentence.position])
-                            char_start = sentence_start + c[0].char_start
-                            char_end = sentence_start + c[0].char_end + 1
+                            char_start, char_end = map(int, c[0].stable_id.split(":")[-2:])
+                            char_end += 1
                             text = c[0].get_span()
                             annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
 
