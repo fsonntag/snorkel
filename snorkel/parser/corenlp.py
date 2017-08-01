@@ -201,12 +201,11 @@ class StanfordCoreNLPServer(Parser):
         :return:
         '''
         if len(text.strip()) == 0:
-            print>> sys.stderr, "Warning, empty document {0} passed to CoreNLP".format(document.name if document else "?")
+            print("Warning, empty document {0} passed to CoreNLP".format(document.name if document else "?"), file=sys.stderr)
             return
 
         # handle encoding (force to unicode)
-        if isinstance(text, unicode):
-            text = text.encode('utf-8', 'error')
+        text = text.encode('utf-8', 'error')
 
         # POST request to CoreNLP Server
         try:
@@ -214,7 +213,7 @@ class StanfordCoreNLPServer(Parser):
             content = content.decode(self.encoding)
 
         except socket.error as e:
-            print>>sys.stderr,"Socket error"
+            print("Socket error", file=sys.stderr)
             raise ValueError("Socket Error")
 
         # check for parsing error messages
