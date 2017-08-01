@@ -1,5 +1,7 @@
 
-from urllib2 import urlopen, URLError, HTTPError
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
+
 
 def download(url, outfname):
     """
@@ -13,7 +15,7 @@ def download(url, outfname):
         data = urlopen(url)
         with open(outfname, "wb") as f:
             f.write(data.read())
-    except HTTPError, e:
-        print "HTTP Error:", e.code, url
-    except URLError, e:
-        print "URL Error:", e.reason, url
+    except HTTPError as e:
+        print("HTTP Error:", e.code, url)
+    except URLError as e:
+        print("URL Error:", e.reason, url)
