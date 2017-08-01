@@ -365,7 +365,7 @@ class Brat(object):
         :param candidate_types:
         :return:
         """
-        if type(candidate_types[0]) != str:
+        if type(list(candidate_types)[0]) != str:
             candidate_types = [candidate_type.__name__ for candidate_type in candidate_types]
 
         entity_defs = "\n".join(candidate_types)
