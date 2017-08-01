@@ -9,6 +9,8 @@ from ...db_helpers import reload_annotator_labels
 from ...parser import TextDocPreprocessor, CorpusParser
 from ...models import Candidate, StableLabel, Document, TemporarySpan, Sentence, candidate_subclass, GoldLabel
 
+from tqdm import tqdm
+
 
 class BratProject(object):
     """
@@ -79,7 +81,7 @@ class BratProject(object):
         """
         config_path = "{}/{}".format(input_dir, "annotation.conf")
         if not os.path.exists(config_path):
-            print>> sys.stderr, "Fatal error: missing 'annotation.conf' file"
+            print("Fatal error: missing 'annotation.conf' file", file=sys.stderr)
             return
 
         # load brat config (this defines relation and argument types)
@@ -138,9 +140,9 @@ class BratProject(object):
             fp.write(config)
 
         if self.verbose:
-            print "Export complete"
-            print "\t {} documents".format(len(doc_index))
-            print "\t {} annotations".format( sum([len(cand_index[name]) for name in cand_index] ))
+            print("Export complete")
+            print("\t {} documents".format(len(doc_index)))
+            print("\t {} annotations".format( sum([len(cand_index[name]) for name in cand_index] )))
 
     def _get_arg_type(self, c, span, use_titlecase=True):
         """
@@ -356,7 +358,7 @@ class BratProject(object):
                 if class_name[0] in ['!','-']:
                     continue
                 self.subclasses[class_name] = candidate_subclass(class_name, [class_name.lower()])
-                print 'CREATED TYPE Entity({},[{}])'.format(class_name, class_name.lower())
+                print('CREATED TYPE Entity({},[{}])'.format(class_name, class_name.lower()))
             except:
                 pass
 
@@ -364,13 +366,13 @@ class BratProject(object):
         for item in config['relations']:
             name, arg1, arg2 = item
             #  Skip <ENTITY> tags; the generic entity argument (currently unsupported)
-            ignore_args = set(['<ENTITY>'])
+            ignore_args = {'<ENTITY>'}
             if ignore_args.intersection(arg1) or ignore_args.intersection(arg2):
                 continue
 
             # TODO: Assume simple relation types *without* multiple argument types
             if (len(arg1) > 1 or len(arg2) > 1) and arg1 != arg2:
-                print>>sys.stderr,"Error: Snorkel currently does not support multiple argument types per relation"
+                print("Error: Snorkel currently does not support multiple argument types per relation", file=sys.stderr)
 
             try:
                 args = sorted(set(arg1 + arg2))
@@ -383,9 +385,9 @@ class BratProject(object):
                 name = name.replace("-","_")
 
                 self.subclasses[name] = candidate_subclass(name, args)
-                print 'CREATED TYPE Relation({},{})'.format(name, args)
+                print('CREATED TYPE Relation({},{})'.format(name, args))
             except Exception as e:
-                print e
+                print(e)
 
 
     def _create_config(self, candidate_types):
@@ -469,7 +471,7 @@ class BratProject(object):
                 for c,et in zip(contexts,class_name.__argnames__):
                     stable_id = c.split(":")
                     name, offsets = stable_id[0], stable_id[-2:]
-                    span = map(int, offsets)
+                    span = list(map(int, offsets))
 
                     doc = self.session.query(Document).filter(Document.name == name).one()
                     if name not in abs_offsets:
@@ -483,8 +485,8 @@ class BratProject(object):
                                 tc.load_id_or_insert(self.session)
                                 spans.append(tc)
                             except Exception as e:
-                                print "BRAT candidate conversion error", len(doc.sentences), j
-                                print e
+                                print("BRAT candidate conversion error", len(doc.sentences), j)
+                                print(e)
 
                 entity_types[class_type].append(spans)
 
