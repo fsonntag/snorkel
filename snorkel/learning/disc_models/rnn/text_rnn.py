@@ -1,7 +1,7 @@
 import numpy as np
 
-from rnn_base import RNNBase
-from utils import SymbolTable
+from snorkel.learning.disc_models.rnn.rnn_base import RNNBase
+from snorkel.learning.disc_models.rnn.utils import SymbolTable
 
 
 class TextRNN(RNNBase):

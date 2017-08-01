@@ -1,7 +1,7 @@
 import numpy as np
 
-from rnn_base import RNNBase
-from utils import candidate_to_tokens, SymbolTable
+from snorkel.learning.disc_models.rnn.rnn_base import RNNBase
+from snorkel.learning.disc_models.rnn.utils import SymbolTable, candidate_to_tokens
 
 
 def mark(l, h, idx):
