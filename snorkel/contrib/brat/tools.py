@@ -141,17 +141,18 @@ class Brat(object):
                     for i, annotation_tuple in enumerate(annotation_tuples)]
                 ann_file.writelines(lines)
 
-    def export_by_noisy_tagged_sentences(self, output_dir, num_sentences):
+    def export_by_noisy_tagged_sentences(self, output_dir, num_sentences, entity_names):
         """
-                :param output_dir:                
-                :return:
-                """
+        :param output_dir:
+        :return:
+        """
         print(f"Writing to {output_dir}")
         os.makedirs(output_dir, exist_ok=True)
         noisy_tagged_sentences = self.session.query(NoisyTaggedSentence).all()
         print('Grouping candidates by document')
         doc_index = _group_noisy_sentences_by_document(noisy_tagged_sentences, num_sentences)
-        candidates = self.session.query(Candidate).all()
+        candidates = self.session.query(Candidate).filter(Candidate.type.in_({e.lower() for e in entity_names})).all()
+        type_candidate_ids = {c.id for c in candidates}
         snorkel_types = {type(c) for c in candidates}
         configuration_string = self._create_config_from_candidate_types(snorkel_types)
 
@@ -164,14 +165,17 @@ class Brat(object):
                 # write the text
                 if i == 0:
                     with open(os.path.join(output_dir, f'{name}_{i}.txt'), 'w') as text_file:
-                        text = " ".join([sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
+                        text = " ".join(
+                            [sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
                         text_file.write(text)
                 else:
                     os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'), os.path.join(output_dir, f'{name}_{i}.txt'))
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
                     candidate_ids = list(
-                        itertools.chain.from_iterable([s.candidate_ids for s in noisy_tagged_sentences]))
+                        itertools.chain.from_iterable(
+                            [[candidate_id for candidate_id in s.candidate_ids if candidate_id in type_candidate_ids]
+                             for s in noisy_tagged_sentences]))
                     annotation_tuples = []
                     candidates = self.session.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
                     for c in candidates:
