@@ -1,4 +1,4 @@
-from .disc_learning import NoiseAwareModel
+from .classifier import Classifier
 from .utils import MentionScorer
 import numbskull
 from numbskull import NumbSkull
@@ -7,17 +7,18 @@ from numbskull.numbskulltypes import Weight, Variable, Factor, FactorToVar
 import numpy as np
 import random
 import scipy.sparse as sparse
-from snorkel.learning.utils import exact_data, log_odds, odds_to_prob, sample_data, sparse_abs, transform_sample_stats
 from copy import copy
 from pandas import DataFrame, Series
 from distutils.version import StrictVersion
+from six.moves.cPickle import dump, load
+import os
 
 DEP_SIMILAR = 0
 DEP_FIXING = 1
 DEP_REINFORCING = 2
 DEP_EXCLUSIVE = 3
 
-class GenerativeModel(object):
+class GenerativeModel(Classifier):
     """
     A generative model for data programming for binary classification.
 
@@ -32,8 +33,8 @@ class GenerativeModel(object):
     :param seed: seed for initializing state of Numbskull variables
     """
     def __init__(self, class_prior=False, lf_prior=False, lf_propensity=False,
-        lf_class_propensity=False, seed=271828):
-
+        lf_class_propensity=False, seed=271828, name=None):
+        self.name = name or self.__class__.__name__
         try:
             numbskull_version = numbskull.__version__
         except:
@@ -70,7 +71,7 @@ class GenerativeModel(object):
         LF_acc_prior_weight_default=1, labels=None, label_prior_weight=5,
         init_deps=0.0, init_class_prior=-1.0, epochs=30, step_size=None, 
         decay=1.0, reg_param=0.1, reg_type=2, verbose=False, truncation=10, 
-        burn_in=5, cardinality=None, timer=None, candidate_ranges=None):
+        burn_in=5, cardinality=None, timer=None, candidate_ranges=None, threads=1):
         """
         Fits the parameters of the model to a data set. By default, learns a
         conditionally independent model. Additional unary dependencies can be
@@ -117,10 +118,10 @@ class GenerativeModel(object):
             candidates can take. If a label is outside of this range throws an
             error. If None, then each candidate can take any value from 0 to
             cardinality.
+        :param threads: the number of threads to use for sampling. Default is 1.
         """
         m, n = L.shape
         step_size = step_size or 0.0001
-        reg_param_scaled = reg_param / L.shape[0]
 
         # Check to make sure matrix is int-valued
         element_type = type(L[0,0])
@@ -187,22 +188,9 @@ class GenerativeModel(object):
         # else as constant value.
         self.cardinalities = self.cardinality * np.ones(m, dtype=np.int64)
         self.candidate_ranges = candidate_ranges
-        if candidate_ranges is not None:
-            for i in range(m):
-                c_range = candidate_ranges[i]
-
-                # Confirm that the candidate range has only unique values
-                assert len(c_range) == len(set(c_range))
-                self.cardinalities[i] = len(c_range)
-
-                # Re-map the values of L[i, :]
-                # Assumes L is csr_sparse format at this point
-                for j in range(L[i].data.shape[0]):
-                    val = L[i].data[j]
-                    if val not in c_range:
-                        raise ValueError("""Value {0} is not in supplied range 
-                            for candidate at index {1}""".format(val, i))
-                    L[i, L[i].indices[j]] = c_range.index(val) + 1
+        if self.candidate_ranges is not None:
+            L, self.cardinalities, _ = self._remap_scoped_categoricals(L, 
+                self.candidate_ranges)
 
         # Shuffle the data points, cardinalities, and candidate_ranges
         idxs = range(m)
@@ -224,13 +212,14 @@ class GenerativeModel(object):
             n_learning_epoch=epochs, 
             stepsize=step_size,
             decay=decay,
-            reg_param=reg_param_scaled,
+            reg_param=reg_param,
             regularization=reg_type,
             truncation=truncation,
             quiet=(not verbose),
             verbose=verbose, 
             learn_non_evidence=True,
-            burn_in=burn_in
+            burn_in=burn_in,
+            nthreads=threads
         )
         fg.loadFactorGraph(weight, variable, factor, ftv, domain_mask, n_edges)
 
@@ -243,7 +232,7 @@ class GenerativeModel(object):
 
         # Store info from factor graph
         if self.candidate_ranges is not None:
-            self.cardinality_for_stats = max(self.cardinalities)
+            self.cardinality_for_stats = int(max(self.cardinalities))
         else:
             self.cardinality_for_stats = self.cardinality
         self.learned_weights = fg.factorGraphs[0].weight_value
@@ -262,6 +251,36 @@ class GenerativeModel(object):
         self.fg = fg
         self.nlf = n
         self.cardinality = cardinality
+
+    def _remap_scoped_categoricals(self, L_in, candidate_ranges):
+        """
+        Remap the values of each individual candidate so that they have dense
+        support, returning the remapped label matrix, cardinalities, and
+        inverse mapping.
+        """
+        L = L_in.copy()
+        m, n = L.shape
+        cardinalities = np.ones(m)
+        mappings = []
+        for i in range(m):
+            c_range = candidate_ranges[i]
+
+            # Confirm that the candidate range has only unique values
+            assert len(c_range) == len(set(c_range))
+            cardinalities[i] = len(c_range)
+
+            # Create the inverse mapping
+            mappings.append(dict([(a + 1, b) for a, b in enumerate(c_range)]))
+
+            # Re-map the values of L[i, :]
+            # Assumes L is csr_sparse format at this point
+            for j in range(L[i].data.shape[0]):
+                val = L[i].data[j]
+                if val not in c_range:
+                    raise ValueError("""Value {0} is not in supplied range 
+                        for candidate at index {1}""".format(val, i))
+                L[i, L[i].indices[j]] = c_range.index(val) + 1
+        return L, cardinalities, mappings
 
     def learned_lf_stats(self):
         """
@@ -335,7 +354,7 @@ class GenerativeModel(object):
 
         return DataFrame(stats)
 
-    def marginals(self, L):
+    def marginals(self, L, candidate_ranges=None, batch_size=None):
         """
         Given an M x N label matrix, returns marginal probabilities for each
         candidate, depending on classification setting:
@@ -404,18 +423,27 @@ class GenerativeModel(object):
         else:
             all_marginals = []
 
+            # Handle the scoped categorical case, otherwise get cardinalities
+            # from self.cardinality
+            if candidate_ranges is not None:
+                L, cardinalities, mappings = self._remap_scoped_categoricals(L, 
+                    candidate_ranges)
+            else:
+                cardinalities = self.cardinality * np.ones(m)
+
             # Get the marginal (posterior) probability for each candidate
             for i in range(m):
-                marginals = np.zeros(self.cardinalities[i], dtype=np.float64)
+                cardinality = int(cardinalities[i])
+                marginals = np.zeros(cardinality, dtype=np.float64)
                 # NB: class priors not currently available for categoricals
                 l_i = L[i].tocoo()
                 for l_index1 in range(l_i.nnz):
                     data_j, j = l_i.data[l_index1], l_i.col[l_index1]
                     if (data_j != 0):
-                        if not 1 <= data_j <= self.cardinalities[i]:
+                        if not 1 <= data_j <= cardinality:
                             raise ValueError(
                                 """Illegal value at %d, %d: %d. Must be in 0 to 
-                                %d.""" % (i, j, data_j, self.cardinalities[i]))
+                                %d.""" % (i, j, data_j, cardinality))
                         # NB: LF class propensity not currently available
                         # for categoricals
                         marginals[int(data_j - 1)] += \
@@ -429,27 +457,14 @@ class GenerativeModel(object):
 
             # If candidate_ranges not None, remap back to original values and
             # return as sparse matrix
-            if self.candidate_ranges is not None:
+            if candidate_ranges is not None:
                 M = sparse.coo_matrix((m, self.cardinality), dtype=np.float64)
                 for i, marginals in enumerate(all_marginals):
                     for j, p in enumerate(marginals):
-                        M[i, self.mappings[j-1]] = p
+                        M[i, mappings[i][j]] = p
             else:
                 M = np.vstack(all_marginals)
             return M
-
-    def score(self, session, X_test, test_labels, gold_candidate_set=None, b=0.5, set_unlabeled_as_neg=True,
-              display=True, scorer=MentionScorer, **kwargs):
-
-        # Get the test candidates
-        test_candidates = [X_test.get_candidate(session, i) for i in range(X_test.shape[0])]
-
-        # Initialize scorer
-        s               = scorer(test_candidates, test_labels, gold_candidate_set)
-        test_marginals  = self.marginals(X_test, **kwargs)
-
-        return s.score(test_marginals, train_marginals=None, b=b,
-                       set_unlabeled_as_neg=set_unlabeled_as_neg, display=display)
 
     def _process_dependency_graph(self, L, deps):
         """
@@ -482,7 +497,7 @@ class GenerativeModel(object):
             if dep_type in dep_name_map:
                 dep_mat = getattr(self, dep_name_map[dep_type])
             else:
-                raise ValueError("Unrecognized dependency type: " + str(dep_type))
+                raise ValueError("Unrecognized dependency type: " + unicode(dep_type))
 
             dep_mat[lf1, lf2] = 1
 
@@ -611,7 +626,7 @@ class GenerativeModel(object):
                     variable[index]["initialValue"] = data - 1
                 else:
                     raise ValueError("Invalid labeling function output in cell (%d, %d): %d. "
-                                     "Valid values are 0 to %d. " % (i, j, data, self.cardinality))
+                                     "Valid values are 0 to %d. " % (i, j, data, self.cardinalities[i]))
 
         #
         # Compiles factor and ftv matrices
@@ -796,6 +811,42 @@ class GenerativeModel(object):
 
         self.weights = weights
 
+    def save(self, model_name=None, save_dir='checkpoints', verbose=True):
+        """Save current model."""
+        model_name = model_name or self.name
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        
+        # Save generative model weights
+        save_path = os.path.join(save_dir, "{0}.weights.pkl".format(model_name))
+        with open(save_path, 'wb') as f:
+            dump(self.weights, f)
+
+        # Save other model hyperparameters needed to rebuild model
+        save_path2 = os.path.join(save_dir, "{0}.hps.pkl".format(model_name))
+        with open(save_path2, 'wb') as f:
+            dump({
+                'cardinality': self.cardinality,
+                'cardinality_for_stats': self.cardinality_for_stats
+            }, f)
+
+        if verbose:
+            print("[{0}] Model saved as <{1}>.".format(self.name, model_name))
+
+    def load(self, model_name=None, save_dir='checkpoints', verbose=True):
+        """Load model."""
+        model_name = model_name or self.name
+        save_path = os.path.join(save_dir, "{0}.weights.pkl".format(model_name))
+        with open(save_path, 'rb') as f:
+            self.weights = load(f)
+        save_path2 = os.path.join(save_dir, "{0}.hps.pkl".format(model_name))
+        with open(save_path2, 'rb') as f:
+            hps = load(f)
+            for k, v in hps.iteritems():
+                setattr(self, k, v)
+        if verbose:
+            print("[{0}] Model <{1}> loaded.".format(self.name, model_name))
+
 
 class GenerativeModelWeights(object):
 
@@ -845,106 +896,4 @@ class GenerativeModelWeights(object):
             return True
         else:
             return False
-
-
-###
-### Old generative model class
-###
-class NaiveBayes(NoiseAwareModel):
-    def __init__(self, bias_term=False):
-        self.w         = None
-        self.bias_term = bias_term
-
-    def train(self, X, n_iter=1000, w0=None, rate=0.01, alpha=0.5, mu=1e-6,
-            sample=False, n_samples=100, evidence=None, warm_starts=False, 
-            tol=1e-6, verbose=True):
-        """
-        Perform SGD wrt the weights w
-        * n_iter:      Number of steps of SGD
-        * w0:          Initial value for weights w
-        * rate:        I.e. the SGD step size
-        * alpha:       Elastic net penalty mixing parameter (0=ridge, 1=lasso)
-        * mu:          Elastic net penalty
-        * sample:      Whether to sample or not
-        * n_samples:   Number of samples per SGD step
-        * evidence:    Ground truth to condition on
-        * warm_starts:
-        * tol:         For testing for SGD convergence, i.e. stopping threshold
-        """
-        self.X_train = X
-
-        # Set up stuff
-        N, M   = X.shape
-        print("="*80)
-        print("Training marginals (!= 0.5):\t%s" % N)
-        print("Features:\t\t\t%s" % M)
-        print("="*80)
-        Xt     = X.transpose()
-        Xt_abs = sparse_abs(Xt) if sparse.issparse(Xt) else np.abs(Xt)
-        w0     = w0 if w0 is not None else np.ones(M)
-
-        # Initialize training
-        w = w0.copy()
-        g = np.zeros(M)
-        l = np.zeros(M)
-        g_size = 0
-
-        # Gradient descent
-        if verbose:
-            print("Begin training for rate={}, mu={}".format(rate, mu))
-        for step in range(n_iter):
-
-            # Get the expected LF accuracy
-            t,f = sample_data(X, w, n_samples=n_samples) if sample else exact_data(X, w, evidence)
-            p_correct, n_pred = transform_sample_stats(Xt, t, f, Xt_abs)
-
-            # Get the "empirical log odds"; NB: this assumes one is correct, clamp is for sampling...
-            l = np.clip(log_odds(p_correct), -10, 10)
-
-            # SGD step with normalization by the number of samples
-            g0 = (n_pred*(w - l)) / np.sum(n_pred)
-
-            # Momentum term for faster training
-            g = 0.95*g0 + 0.05*g
-
-            # Check for convergence
-            wn     = np.linalg.norm(w, ord=2)
-            g_size = np.linalg.norm(g, ord=2)
-            if step % 250 == 0 and verbose:
-                print("\tLearning epoch = {}\tGradient mag. = {:.6f}".format(step, g_size))
-            if (wn < 1e-12 or g_size / wn < tol) and step >= 10:
-                if verbose:
-                    print("SGD converged for mu={} after {} steps".format(mu, step))
-                break
-
-            # Update weights
-            w -= rate * g
-
-            # Apply elastic net penalty
-            w_bias    = w[-1]
-            soft      = np.abs(w) - mu
-            ridge_pen = (1 + (1-alpha) * mu)
-
-            #          \ell_1 penalty by soft thresholding        |  \ell_2 penalty
-            w = (np.sign(w)*np.select([soft>0], [soft], default=0)) / ridge_pen
-
-            # Don't regularize the bias term
-            if self.bias_term:
-                w[-1] = w_bias
-
-        # SGD did not converge
-        else:
-            if verbose:
-                print("Final gradient magnitude for rate={}, mu={}: {:.3f}".format(rate, mu, g_size))
-
-        # Return learned weights
-        self.w = w
-
-    def marginals(self, X):
-        return odds_to_prob(X.dot(self.w))
-
-    def save(self, session, version):
-        raise NotImplementedError("Not implemented for generative model.")
-
-    def load(self, session, version):
-        raise NotImplementedError("Not implemented for generative model.")        
+   

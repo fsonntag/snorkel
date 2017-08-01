@@ -1,5 +1,4 @@
 from .meta import SnorkelBase, snorkel_postgres
-
 from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import relationship, backref
@@ -67,27 +66,27 @@ class Sentence(Context):
     document = relationship('Document', backref=backref('sentences', order_by=position, cascade='all, delete-orphan'), foreign_keys=document_id)
     text = Column(Text, nullable=False)
     if snorkel_postgres:
-        words        = Column(postgresql.ARRAY(String), nullable=False)
-        char_offsets = Column(postgresql.ARRAY(Integer), nullable=False)
-        abs_char_offsets = Column(postgresql.ARRAY(Integer), nullable=False)
-        lemmas       = Column(postgresql.ARRAY(String))
-        pos_tags     = Column(postgresql.ARRAY(String))
-        ner_tags     = Column(postgresql.ARRAY(String))
-        dep_parents  = Column(postgresql.ARRAY(Integer))
-        dep_labels   = Column(postgresql.ARRAY(String))
-        entity_cids  = Column(postgresql.ARRAY(String))
-        entity_types = Column(postgresql.ARRAY(String))
+        words             = Column(postgresql.ARRAY(String), nullable=False)
+        char_offsets      = Column(postgresql.ARRAY(Integer), nullable=False)
+        abs_char_offsets  = Column(postgresql.ARRAY(Integer), nullable=False)
+        lemmas            = Column(postgresql.ARRAY(String))
+        pos_tags          = Column(postgresql.ARRAY(String))
+        ner_tags          = Column(postgresql.ARRAY(String))
+        dep_parents       = Column(postgresql.ARRAY(Integer))
+        dep_labels        = Column(postgresql.ARRAY(String))
+        entity_cids       = Column(postgresql.ARRAY(String))
+        entity_types      = Column(postgresql.ARRAY(String))
     else:
-        words        = Column(PickleType, nullable=False)
-        char_offsets = Column(PickleType, nullable=False)
-        abs_char_offsets = Column(PickleType, nullable=False)
-        lemmas       = Column(PickleType)
-        pos_tags     = Column(PickleType)
-        ner_tags     = Column(PickleType)
-        dep_parents  = Column(PickleType)
-        dep_labels   = Column(PickleType)
-        entity_cids  = Column(PickleType)
-        entity_types = Column(PickleType)
+        words             = Column(PickleType, nullable=False)
+        char_offsets      = Column(PickleType, nullable=False)
+        abs_char_offsets  = Column(PickleType, nullable=False)
+        lemmas            = Column(PickleType)
+        pos_tags          = Column(PickleType)
+        ner_tags          = Column(PickleType)
+        dep_parents       = Column(PickleType)
+        dep_labels        = Column(PickleType)
+        entity_cids       = Column(PickleType)
+        entity_types      = Column(PickleType)
 
     __mapper_args__ = {
         'polymorphic_identity': 'sentence',
@@ -125,39 +124,6 @@ class Sentence(Context):
 
     def __repr__(self):
         return "Sentence(%s,%s,%s)" % (self.document, self.position, self.text.encode('utf-8'))
-
-
-class NoisyTaggedSentence(SnorkelBase):
-    __tablename__ = 'noisy_tagged_sentence'
-    id = Column(Integer, primary_key=True)
-    sentence_id = Column(Integer, ForeignKey('sentence.id', ondelete='CASCADE'))
-    sentence = relationship('Sentence', backref=backref('noisy_tagged_sentences', cascade='all, delete-orphan'),
-                            foreign_keys=sentence_id)
-    if snorkel_postgres:
-        candidate_ids = Column(postgresql.ARRAY(Integer), nullable=False)
-    else:
-        candidate_ids = Column(PickleType, nullable=False)
-
-    __mapper_args__ = {
-        'polymorphic_identity': 'noisy_tagged_sentence',
-    }
-
-
-class EmbeddingNNInformation(SnorkelBase):
-    __tablename__ = 'embedding_nn_information'
-    id = Column(Integer, primary_key=True)
-    text = Column(Text, nullable=False)
-    in_lexicon = Column(Integer, nullable=False)
-    if snorkel_postgres:
-        nns = Column(postgresql.ARRAY(Text), nullable=False)
-        nn_in_lexicon = Column(postgresql.ARRAY(Integer), nullable=False)
-    else:
-        nns = Column(PickleType, nullable=False)
-        nn_in_lexicon = Column(PickleType, nullable=False)
-
-    __mapper_args__ = {
-        'polymorphic_identity': 'embedding_nn_information',
-    }
 
 
 class TemporaryContext(object):

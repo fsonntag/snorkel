@@ -19,7 +19,9 @@ class ProgressBar(object):
         """Assumes i ranges through [0, N-1]"""
         if i in self.ticks:
             b = int(np.ceil(((i+1) / self.nf) * self.length))
-            sys.stdout.write("\r[%s%s] %d%%" % ("="*b, " "*(self.length-b), int(100*((i+1) / self.nf))))
+            sys.stdout.write(
+                "\r[{0}{1}] {2}%".format(
+                    "="*b, " "*(self.length-b), int(100*((i+1) / self.nf))))
             sys.stdout.flush()
 
     def close(self):
@@ -95,22 +97,22 @@ def matrix_conflicts(L):
 
 def matrix_tp(L, labels):
     return np.ravel([
-        np.sum(np.ravel((L[:, j] == 1).todense()) * (labels == 1)) for j in xrange(L.shape[1])
+        np.sum(np.ravel((L[:, j] == 1).todense()) * (labels == 1)) for j in range(L.shape[1])
     ])
 
 def matrix_fp(L, labels):
     return np.ravel([
-        np.sum(np.ravel((L[:, j] == 1).todense()) * (labels == -1)) for j in xrange(L.shape[1])
+        np.sum(np.ravel((L[:, j] == 1).todense()) * (labels == -1)) for j in range(L.shape[1])
     ])
 
 def matrix_tn(L, labels):
     return np.ravel([
-        np.sum(np.ravel((L[:, j] == -1).todense()) * (labels == -1)) for j in xrange(L.shape[1])
+        np.sum(np.ravel((L[:, j] == -1).todense()) * (labels == -1)) for j in range(L.shape[1])
     ])
 
 def matrix_fn(L, labels):
     return np.ravel([
-        np.sum(np.ravel((L[:, j] == -1).todense()) * (labels == 1)) for j in xrange(L.shape[1])
+        np.sum(np.ravel((L[:, j] == -1).todense()) * (labels == 1)) for j in range(L.shape[1])
     ])
 
 def get_as_dict(x):

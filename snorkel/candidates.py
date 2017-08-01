@@ -25,9 +25,9 @@ class CandidateExtractor(UDFRunner):
     :param nested_relations: Boolean indicating whether to extract Candidates that relate one Context with another
                              that contains it. Only applies to binary relations. Default is False.
     :param symmetric_relations: Boolean indicating whether to extract symmetric Candidates, i.e., rel(A,B) and rel(B,A),
-                                where A and B are Contexts. Only applies to binary relations. Default is True.
+                                where A and B are Contexts. Only applies to binary relations. Default is False.
     """
-    def __init__(self, candidate_class, cspaces, matchers, self_relations=False, nested_relations=False, symmetric_relations=True):
+    def __init__(self, candidate_class, cspaces, matchers, self_relations=False, nested_relations=False, symmetric_relations=False):
         super(CandidateExtractor, self).__init__(CandidateExtractorUDF,
                                                  candidate_class=candidate_class,
                                                  cspaces=cspaces,
@@ -88,12 +88,14 @@ class CandidateExtractorUDF(UDF):
                 bi, b = args[1]
 
                 # Check for self-joins, "nested" joins (joins from span to its subspan), and flipped duplicate
-                # "symmetric" relations
+                # "symmetric" relations. For symmetric relations, if mentions are of the same type, maintain
+                # their order in the sentence.
                 if not self.self_relations and a == b:
                     continue
                 elif not self.nested_relations and (a in b or b in a):
                     continue
-                elif not self.symmetric_relations and (b, a) in extracted:
+                elif not self.symmetric_relations and ((b, a) in extracted or
+                    (self.matchers[0] == self.matchers[1] and a.char_start > b.char_start)):
                     continue
 
                 # Keep track of extracted
@@ -158,7 +160,7 @@ class Ngrams(CandidateSpace):
 
                 # Check for split
                 # NOTE: For simplicity, we only split single tokens right now!
-                if l == 1 and self.split_rgx is not None:
+                if l == 1 and self.split_rgx is not None and end - start > 0:
                     m = re.search(self.split_rgx, context.text[start-offsets[0]:end-offsets[0]+1])
                     if m is not None and l < self.n_max + 1:
                         ts1 = TemporarySpan(char_start=start, char_end=start + m.start(1) - 1, sentence=context)
@@ -194,7 +196,7 @@ class PretaggedCandidateExtractorUDF(UDF):
     An extractor for Sentences with entities pre-tagged, and stored in the entity_types and entity_cids
     fields.
     """
-    def __init__(self, candidate_class, entity_types, self_relations=False, nested_relations=False, symmetric_relations=True, entity_sep='~@~', **kwargs):
+    def __init__(self, candidate_class, entity_types, self_relations=False, nested_relations=False, symmetric_relations=False, entity_sep='~@~', **kwargs):
         self.candidate_class     = candidate_class
         self.entity_types        = entity_types
         self.arity               = len(entity_types)

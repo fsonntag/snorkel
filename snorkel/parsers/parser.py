@@ -3,7 +3,7 @@ import sys
 import requests
 
 from requests.adapters import HTTPAdapter
-from urllib3 import Retry
+from requests.packages.urllib3.util.retry import Retry
 
 
 class Parser(object):
