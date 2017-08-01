@@ -4,6 +4,7 @@
 .ipynb_checkpoints
 *.pyc
 parser/
+!snorkel/parser
 /stanford-corenlp-*
 *.db*
 downloads/
