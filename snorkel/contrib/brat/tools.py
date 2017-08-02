@@ -215,7 +215,10 @@ class BratProject(object):
                             [sentence.text for sentence in doc_index[name][0][0].sentence.document.sentences])
                         text_file.write(text)
                 else:
-                    os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'), os.path.join(output_dir, f'{name}_{i}.txt'))
+                    try:
+                        os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'), os.path.join(output_dir, f'{name}_{i}.txt'))
+                    except FileExistsError:
+                        pass
                 # write the annotation file
                 with open(os.path.join(output_dir, f'{name}_{i}.ann'), 'w') as ann_file:
                     candidate_ids = set(
