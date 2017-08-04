@@ -44,10 +44,10 @@ class Spacy(Parser):
 
     '''
     def __init__(self, annotators=['tagger', 'parser', 'entity'],
-                 lang='en', num_threads=1, verbose=False):
+                 lang='en', num_threads=1, verbose=False, pipeline_and_tokenizer=None):
 
         super(Spacy, self).__init__(name="spacy")
-        self.model = Spacy.load_lang_model(lang)
+        self.model = Spacy.load_lang_model(lang, pipeline_and_tokenizer)
         self.num_threads = num_threads
 
         self.pipeline = []
@@ -67,7 +67,7 @@ class Spacy(Parser):
         return model_path.exists()
 
     @staticmethod
-    def load_lang_model(lang):
+    def load_lang_model(lang, pipeline_and_tokenizer):
         '''
         Load spaCy language model or download if
         model is available and not installed
@@ -84,7 +84,10 @@ class Spacy(Parser):
         '''
         if not Spacy.model_installed(lang):
             download(lang)
-        return spacy.load(lang)
+        if pipeline_and_tokenizer:
+            return spacy.load(lang, create_pipeline=pipeline_and_tokenizer[0], create_make_doc=pipeline_and_tokenizer[1])
+        else:
+            return spacy.load(lang)
 
     def connect(self):
         return ParserConnection(self)
