@@ -10,6 +10,7 @@ import tarfile
 import itertools
 import subprocess
 
+import pickle
 from sqlalchemy import and_
 from .utils import download
 from collections import defaultdict
@@ -183,7 +184,7 @@ class BratAnnotator(object):
         display(HTML("<style>.container { width:100% !important; }</style>"))
         display(IFrame(url, width=width, height=height))
 
-    def map_annotations(self, session, annotation_dir, candidates, symmetric_relations=True):
+    def map_annotations(self, session, annotation_dir, candidates, binary=True, symmetric_relations=True):
         """
         Import a collection of BRAT annotations,  map it onto the provided set
         of candidates, and create gold labels. This method DOES NOT create new
@@ -202,7 +203,8 @@ class BratAnnotator(object):
         :return:
         """
         # load BRAT annotations
-        fpath = self.get_collection_path(annotation_dir)
+        # fpath = self.get_collection_path(annotation_dir)
+        fpath = annotation_dir
         annotations = self.standoff_parser.load_annotations(fpath)
 
         # load Document objects from session
@@ -214,29 +216,45 @@ class BratAnnotator(object):
         # create stable IDs for all candidates
         candidate_stable_ids = {}
         for c in candidates:
-            candidate_stable_ids[(c[0].get_stable_id(), c[1].get_stable_id())] = c
+            if binary:
+                candidate_stable_ids[(c[0].get_stable_id(), c[1].get_stable_id())] = c
+            else:
+                candidate_stable_ids[c[0].get_stable_id()] = c
 
         # build BRAT span/relation objects
         brat_stable_ids = []
         for doc_name in documents:
             spans, relations = self._create_relations(documents[doc_name], annotations[doc_name])
-            for key in relations:
-                brat_stable_ids.append(tuple([r.get_stable_id() for r in relations[key]]))
+            if binary:
+                for key in relations:
+                    brat_stable_ids.append(tuple([r.get_stable_id() for r in relations[key]]))
+            else:
+                for span in spans.values():
+                    brat_stable_ids.append(span.get_stable_id())
 
         mapped_cands, missed = [], []
-        for relation in brat_stable_ids:
-            # swap arguments if this is a symmetric relation
-            if symmetric_relations and relation not in candidate_stable_ids:
-                relation = (relation[1],relation[0])
-            # otherwise just test if this relation is in our candidate set
-            if relation in candidate_stable_ids:
-                mapped_cands.append(candidate_stable_ids[relation])
-            else:
-                missed.append(relation)
+        if binary:
+            for relation in brat_stable_ids:
+                # swap arguments if this is a symmetric relation
+                if symmetric_relations and relation not in candidate_stable_ids:
+                    relation = (relation[1],relation[0])
+                # otherwise just test if this relation is in our candidate set
+                if relation in candidate_stable_ids:
+                    mapped_cands.append(candidate_stable_ids[relation])
+                else:
+                    missed.append(relation)
+        else:
+            for span in brat_stable_ids:
+                if span in candidate_stable_ids:
+                    mapped_cands.append(candidate_stable_ids[span])
+                else:
+                    missed.append(span)
 
+        with open('missed.pickle', 'wb') as file:
+            pickle.dump(missed, file)
         n, N = len(mapped_cands), len(missed) + len(mapped_cands)
         p = len(mapped_cands)/ float(N)
-        print>>sys.stderr,"Mapped {}/{} ({:2.0f}%) of BRAT labels to candidates".format(n,N,p*100)
+        print("Mapped {}/{} ({:2.0f}%) of BRAT labels to candidates".format(n,N,p*100), file=sys.stderr)
         return mapped_cands, len(missed)
 
     def error_analysis(self, session, candidates, marginals, annotation_dir, b=0.5):
@@ -301,7 +319,7 @@ class BratAnnotator(object):
         """
         return "{}/{}".format(self.data_root, annotation_dir)
 
-    def import_gold_labels(self, session, annotation_dir, candidates,
+    def import_gold_labels(self, session, annotation_dir, candidates, binary=True,
                            symmetric_relations=True,  annotator_name='brat'):
         """
         We assume all candidates provided to this function are true instances
@@ -310,7 +328,7 @@ class BratAnnotator(object):
         :param annotator_name:
         :return:
         """
-        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, symmetric_relations)
+        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, binary, symmetric_relations)
 
         for c in mapped_cands:
             if self.session.query(GoldLabel).filter(and_(GoldLabel.key_id == self.annotator.id,
@@ -462,7 +480,7 @@ class BratAnnotator(object):
                 msg = "Warning: {} Span annotations do not match BRAT:[{}]!=SNORKEL:[{}] [{}:{}]".format(
                     document.name, mention, spans[key].get_span(), i, j
                 )
-                print >> sys.stderr, msg.format(key)
+                print(msg.format(key), file=sys.stderr)
 
         # create relation pairs
         relations = {}
@@ -473,7 +491,7 @@ class BratAnnotator(object):
             # check that our span objects exist
             if arg1 not in spans or arg2 not in spans:
                 msg = "Error: Relation {} missing Span object (check for Span parsing errors)"
-                print >> sys.stderr, msg.format(key)
+                print(msg.format(key), file=sys.stderr)
             relations[key] = [spans[arg1], spans[arg2]]
 
         return spans, relations
@@ -547,7 +565,7 @@ class StandoffAnnotations(object):
         """
         config_path = "{}/{}".format(input_dir, "annotation.conf")
         if not os.path.exists(config_path):
-            print>> sys.stderr, "Fatal error: missing 'annotation.conf' file"
+            print("Fatal error: missing 'annotation.conf' file", file=sys.stderr)
             return
 
         # load brat config (this defines relation and argument types)
@@ -588,19 +606,18 @@ class StandoffAnnotations(object):
                 if anno_id_prefix == StandoffAnnotations.TEXT_BOUND_ID:
                     anno_id, entity, text = row
                     entity_type = entity.split()[0]
-                    spans = map(lambda x: map(int, x.split()), entity.lstrip(entity_type).split(";"))
+                    spans = list(map(lambda x: map(int, x.split()), entity.lstrip(entity_type).split(";")))
 
                     # discontinuous mentions
                     if len(spans) != 1:
-                        print>> sys.stderr, "NotImplementedError: Discontinuous spans"
+                        print("NotImplementedError: Discontinuous spans", file=sys.stderr)
                         continue
 
                     i,j = spans[0]
                     mention = doc_str[i:j]
                     # santity check to see if label span matches document span
                     if mention != text:
-                        print>> sys.stderr, \
-                            "Error: Annotation spans do not match {} != {}".format(mention, text)
+                        print("Error: Annotation spans do not match {} != {}".format(mention, text), file=sys.stderr)
                         continue
 
                     annotations[anno_id] = {"abs_char_start":i, "abs_char_end":j,
@@ -614,11 +631,11 @@ class StandoffAnnotations(object):
                     annotations[anno_id] = (rela_type, arg1, arg2)
 
                 elif anno_id_prefix == StandoffAnnotations.EVENT_ID:
-                    print>> sys.stderr, "NotImplementedError: Events"
+                    print("NotImplementedError: Events", file=sys.stderr)
                     raise NotImplementedError
 
                 elif anno_id_prefix == StandoffAnnotations.ATTRIB_ID:
-                    print>> sys.stderr, "NotImplementedError: Attributes"
+                    print("NotImplementedError: Attributes", file=sys.stderr)
 
         return annotations
 

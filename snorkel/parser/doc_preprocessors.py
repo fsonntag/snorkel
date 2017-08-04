@@ -20,8 +20,9 @@ class DocPreprocessor(object):
 
     """
 
-    def __init__(self, path, encoding="utf-8", max_docs=float('inf')):
+    def __init__(self, path, file_suffix=None, encoding="utf-8", max_docs=float('inf')):
         self.path = path
+        self.file_suffix = file_suffix
         self.encoding = encoding
         self.max_docs = max_docs
 
@@ -31,7 +32,10 @@ class DocPreprocessor(object):
 
         """
         doc_count = 0
-        for fp in self._get_files(self.path):
+        file_paths = self._get_files(self.path)
+        if self.file_suffix:
+            file_paths = [file_path for file_path in file_paths if file_path.endswith(self.file_suffix)]
+        for fp in file_paths:
             file_name = os.path.basename(fp)
             if self._can_read(file_name):
                 for doc, text in self.parse_file(fp, file_name):
