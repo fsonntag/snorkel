@@ -54,7 +54,7 @@ class DocPreprocessor(object):
         raise NotImplementedError()
 
     def _can_read(self, fpath):
-        return True
+        return not fpath.startswith('.')
 
     def _get_files(self, path):
         if os.path.isfile(path):
