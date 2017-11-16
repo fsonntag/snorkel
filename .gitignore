@@ -39,3 +39,4 @@ tutorials/intro/data/articles-train.tsv
 tutorials/intro/data/gold_labels.tsv
 
 tutorials/tables/data/hardware/
+snorkel/contrib/brat/brat-v1.3_Crunchy_Frog
