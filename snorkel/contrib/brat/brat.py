@@ -222,15 +222,15 @@ class BratAnnotator(object):
                 candidate_stable_ids[c[0].get_stable_id()] = c
 
         # build BRAT span/relation objects
-        brat_stable_ids = []
+        brat_stable_ids = {}
         for doc_name in documents:
             spans, relations = self._create_relations(documents[doc_name], annotations[doc_name])
             if binary:
                 for key in relations:
-                    brat_stable_ids.append(tuple([r.get_stable_id() for r in relations[key]]))
+                    brat_stable_ids[tuple([r.get_stable_id() for r in relations[key]])] = key
             else:
                 for span in spans.values():
-                    brat_stable_ids.append(span.get_stable_id())
+                    brat_stable_ids[span.get_stable_id()] = span
 
         mapped_cands, missed = [], []
         if binary:
@@ -245,16 +245,34 @@ class BratAnnotator(object):
                     missed.append(relation)
         else:
             for span in brat_stable_ids:
-                if span in candidate_stable_ids:
-                    mapped_cands.append(candidate_stable_ids[span])
-                else:
-                    missed.append(span)
+                span_entry = brat_stable_ids[span]
+                if span_entry.meta['type'] == self.candidate_class.__name__:
+                    if span in candidate_stable_ids:
+                        mapped_cands.append(candidate_stable_ids[span])
+                    else:
+                        sentence = brat_stable_ids[span].sentence
+                        char_offsets = sentence.char_offsets
+                        if span_entry.char_start not in char_offsets:
+                            missed.append((span, span_entry.get_span(), 'missed_tokenized'))
+                            continue
+                        if span_entry.char_end >= char_offsets[-1]:
+                            last_token = sentence.words[-1]
+                        else:
+                            last_word_index = next(x[0] for x in enumerate(char_offsets) if x[1] > span_entry.char_end) - 1
+                            last_token = sentence.words[last_word_index]
+                        if not span_entry.get_span().endswith(last_token):
+                            missed.append((span, span_entry.get_span(), 'missed_tokenized'))
+                        else:
+                            missed.append((span, span_entry.get_span(), 'missed_candidate'))
 
-        with open('missed.pickle', 'wb') as file:
+        with open(f'missed_{self.candidate_class.__name__}.pickle', 'wb') as file:
             pickle.dump(missed, file)
+        with open(f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
+            file.writelines(['\t'.join(s) + '\n' for s in missed])
         n, N = len(mapped_cands), len(missed) + len(mapped_cands)
-        p = len(mapped_cands)/ float(N)
-        print("Mapped {}/{} ({:2.0f}%) of BRAT labels to candidates".format(n,N,p*100), file=sys.stderr)
+        p = 0 if N == 0 else len(mapped_cands)/ float(N)
+        print("Mapped {}/{} ({:2.0f}%) of {} BRAT labels to {} candidates"
+              .format(n, N, p * 100, self.candidate_class.__name__, self.candidate_class.__name__))
         return mapped_cands, len(missed)
 
     def error_analysis(self, session, candidates, marginals, annotation_dir, b=0.5):
@@ -438,7 +456,7 @@ class BratAnnotator(object):
         shutil.copyfile("{}/templates/tools.conf".format(self.path),
                         "{}/tools.conf".format(collection_path))
 
-    def _create_temp_span(self, document, abs_char_start, abs_char_end):
+    def _create_temp_span(self, document, abs_char_start, abs_char_end, type):
         """
         Given parsed snorkel document object and global, absolute char offsets,
         create a temporary span object.
@@ -459,7 +477,7 @@ class BratAnnotator(object):
         char_start = abs_char_start - sent.abs_char_offsets[0]
         char_end = abs_char_end - sent.abs_char_offsets[0]
 
-        return TemporarySpan(sent, char_start, char_end - 1)
+        return TemporarySpan(sent, char_start, char_end - 1, meta={'type': type})
 
     def _create_relations(self, document, annotations):
         """
@@ -475,7 +493,8 @@ class BratAnnotator(object):
                 continue
             i, j = annotations[key]["abs_char_start"], annotations[key]["abs_char_end"]
             mention = annotations[key]["mention"]
-            spans[key] = self._create_temp_span(document, i, j)
+            type = annotations[key]['entity_type']
+            spans[key] = self._create_temp_span(document, i, j, type)
             if spans[key].get_span() != mention:
                 msg = "Warning: {} Span annotations do not match BRAT:[{}]!=SNORKEL:[{}] [{}:{}]".format(
                     document.name, mention, spans[key].get_span(), i, j
