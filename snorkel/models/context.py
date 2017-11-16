@@ -254,7 +254,7 @@ class TemporarySpan(TemporaryContext):
         """Get the tokens of sentence attribute _a_ over the range defined by word_offset, n"""
         return self.sentence.__getattribute__(a)[self.get_word_start():self.get_word_end() + 1]
 
-    def get_attrib_span(self, a, sep=" "):
+    def  get_attrib_span(self, a, sep=" "):
         """Get the span of sentence attribute _a_ over the range defined by word_offset, n"""
         # NOTE: Special behavior for words currently (due to correspondence with char_offsets)
         if a == 'words':
