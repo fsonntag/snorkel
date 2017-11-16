@@ -6,7 +6,6 @@ try:
     import spacy
     from spacy.cli import download
     from spacy import util
-    from spacy.deprecated import resolve_model_name
 except:
     raise Exception("spaCy not installed. Use `pip install spacy`.")
 
@@ -43,16 +42,12 @@ class Spacy(Parser):
     CARDINAL	Numerals that do not fall under another type.
 
     '''
-    def __init__(self, annotators=['tagger', 'parser', 'entity'],
-                 lang='en', num_threads=1, verbose=False, pipeline_and_tokenizer=None):
+    def __init__(self, annotators=['tagger', 'parser', 'ner'],
+                 lang='en', num_threads=1, verbose=False, create_tokenizer=None):
 
         super(Spacy, self).__init__(name="spacy")
-        self.model = Spacy.load_lang_model(lang, pipeline_and_tokenizer)
+        self.model = Spacy.load_lang_model(lang, create_tokenizer, annotators)
         self.num_threads = num_threads
-
-        self.pipeline = []
-        for proc in annotators:
-            self.pipeline += [self.model.__dict__[proc]]
 
     @staticmethod
     def model_installed(name):
@@ -62,12 +57,11 @@ class Spacy(Parser):
         :return:
         '''
         data_path = util.get_data_path()
-        model_name = resolve_model_name(name)
-        model_path = data_path / model_name
+        model_path = data_path / name
         return model_path.exists()
 
     @staticmethod
-    def load_lang_model(lang, pipeline_and_tokenizer):
+    def load_lang_model(lang, create_tokenizer, annotators):
         '''
         Load spaCy language model or download if
         model is available and not installed
@@ -84,8 +78,12 @@ class Spacy(Parser):
         '''
         if not Spacy.model_installed(lang):
             download(lang)
-        if pipeline_and_tokenizer:
-            return spacy.load(lang, create_pipeline=pipeline_and_tokenizer[0], create_make_doc=pipeline_and_tokenizer[1])
+        if create_tokenizer:
+            all_annotators = ['parser', 'tagger', 'ner']
+            disable = [annotator for annotator in all_annotators if annotator not in annotators]
+            nlp = spacy.load(lang, disable=disable)
+            nlp.tokenizer = create_tokenizer(nlp)
+            return nlp
         else:
             return spacy.load(lang)
 
@@ -101,9 +99,7 @@ class Spacy(Parser):
         '''
         text = self.to_unicode(text)
 
-        doc = self.model.tokenizer(text)
-        for proc in self.pipeline:
-            proc(doc)
+        doc = self.model(text)
         assert doc.is_parsed
 
         position = 0
