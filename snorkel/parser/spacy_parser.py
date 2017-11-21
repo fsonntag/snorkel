@@ -101,7 +101,8 @@ class Spacy(Parser):
             yield parts
 
     def parse_mt(self, text_and_doc_tuples, num_threads):
-        for spacy_doc, document in tqdm(self.model.pipe(text_and_doc_tuples, as_tuples=True, n_threads=num_threads, batch_size=10)):
+        for spacy_doc, document in tqdm(
+                self.model.pipe(text_and_doc_tuples, as_tuples=True, n_threads=num_threads, batch_size=5000)):
             for parts in self.parse_doc(spacy_doc, document):
                 yield parts
 
