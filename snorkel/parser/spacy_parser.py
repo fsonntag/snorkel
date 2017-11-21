@@ -1,4 +1,7 @@
 from collections import defaultdict
+
+from tqdm import tqdm
+
 from snorkel.models import construct_stable_id
 from snorkel.parser import Parser, ParserConnection
 
@@ -42,11 +45,12 @@ class Spacy(Parser):
     CARDINAL	Numerals that do not fall under another type.
 
     '''
+
     def __init__(self, annotators=['tagger', 'parser', 'ner'],
-                 lang='en', num_threads=1, verbose=False, create_tokenizer=None):
+                 lang='en', num_threads=1, verbose=False, create_tokenizer=None, custom_sentence_segmenter=None):
 
         super(Spacy, self).__init__(name="spacy")
-        self.model = Spacy.load_lang_model(lang, create_tokenizer, annotators)
+        self.model = Spacy.load_lang_model(lang, create_tokenizer, annotators, custom_sentence_segmenter)
         self.num_threads = num_threads
 
     @staticmethod
@@ -61,7 +65,7 @@ class Spacy(Parser):
         return model_path.exists()
 
     @staticmethod
-    def load_lang_model(lang, create_tokenizer, annotators):
+    def load_lang_model(lang, create_tokenizer, annotators, custom_sentence_segmenter):
         '''
         Load spaCy language model or download if
         model is available and not installed
@@ -78,36 +82,45 @@ class Spacy(Parser):
         '''
         if not Spacy.model_installed(lang):
             download(lang)
+        all_annotators = ['tagger', 'parser', 'ner']
+        disable = [annotator for annotator in all_annotators if annotator not in annotators]
+        nlp = spacy.load(lang, disable=disable)
         if create_tokenizer:
-            all_annotators = ['parser', 'tagger', 'ner']
-            disable = [annotator for annotator in all_annotators if annotator not in annotators]
-            nlp = spacy.load(lang, disable=disable)
             nlp.tokenizer = create_tokenizer(nlp)
-            return nlp
-        else:
-            return spacy.load(lang)
+        if custom_sentence_segmenter:
+            nlp.add_pipe(custom_sentence_segmenter, before='parser')
+
+        return nlp
 
     def connect(self):
         return ParserConnection(self)
 
-    def parse(self, document, text):
+    def parse(self, text, document):
+        spacy_doc = self.model(text)
+        for parts in self.parse_doc(spacy_doc, document):
+            yield parts
+
+    def parse_mt(self, text_and_doc_tuples, num_threads):
+        for spacy_doc, document in tqdm(self.model.pipe(text_and_doc_tuples, as_tuples=True, n_threads=num_threads, batch_size=10)):
+            for parts in self.parse_doc(spacy_doc, document):
+                yield parts
+
+    def parse_doc(self, spacy_doc, document):
         '''
         Transform spaCy output to match CoreNLP's default format
+        :param spacy_doc:
         :param document:
-        :param text:
         :return:
         '''
-        text = self.to_unicode(text)
 
-        doc = self.model(text)
-        assert doc.is_parsed
+        assert spacy_doc.is_parsed
 
         position = 0
-        for sent in doc.sents:
+        for sent in spacy_doc.sents:
             parts = defaultdict(list)
             text = sent.text
 
-            for i,token in enumerate(sent):
+            for i, token in enumerate(sent):
                 parts['words'].append(str(token))
                 parts['lemmas'].append(token.lemma_)
                 parts['pos_tags'].append(token.tag_)
