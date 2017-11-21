@@ -11,12 +11,14 @@ import itertools
 import subprocess
 
 import pickle
+from pathlib import Path
+
 from sqlalchemy import and_
 from .utils import download
 from collections import defaultdict
 from IPython.display import IFrame, display, HTML
 from ...models import Span, Candidate, Document, Sentence, TemporarySpan, GoldLabel, GoldLabelKey
-from ...learning.utils import print_scores
+
 
 class BratAnnotator(object):
     """
@@ -27,6 +29,7 @@ class BratAnnotator(object):
     This implements a minimal interface for annotating simple relation pairs and their entities.
 
     """
+
     def __init__(self, session, candidate_class, encoding="utf-8",
                  annotator_name='brat', address='localhost', port=8001):
         """
@@ -102,9 +105,9 @@ class BratAnnotator(object):
         for doc in documents:
             text = doc_to_text(doc)
             outfpath = "{}/{}".format(collection_path, doc.name)
-            with codecs.open(outfpath + ".txt","w", self.encoding, errors=errors) as fp:
+            with codecs.open(outfpath + ".txt", "w", self.encoding, errors=errors) as fp:
                 fp.write(text)
-            with codecs.open(outfpath + ".ann","w", self.encoding, errors=errors) as fp:
+            with codecs.open(outfpath + ".ann", "w", self.encoding, errors=errors) as fp:
                 fp.write("")
 
         # add minimal annotation.config based on candidate_subclass info
@@ -166,7 +169,7 @@ class BratAnnotator(object):
 
         if new_window:
             # NOTE: if we use javascript, we need pop-ups enabled for a given browser
-            #html = "<script>window.open('{}','_blank');</script>".format(url)
+            # html = "<script>window.open('{}','_blank');</script>".format(url)
             html = "<a href='{}' target='_blank'>Launch BRAT</a>".format(url)
             display(HTML(html))
 
@@ -210,7 +213,7 @@ class BratAnnotator(object):
         # load Document objects from session
         doc_names = [doc_name for doc_name in annotations if annotations[doc_name]]
         documents = session.query(Document).filter(Document.name.in_(doc_names)).all()
-        documents = {doc.name:doc for doc in documents}
+        documents = {doc.name: doc for doc in documents}
 
         # TODO: make faster!!
         # create stable IDs for all candidates
@@ -232,12 +235,12 @@ class BratAnnotator(object):
                 for span in spans.values():
                     brat_stable_ids[span.get_stable_id()] = span
 
-        mapped_cands, missed = [], []
+        mapped_cands, missed, false_positives = [], [], []
         if binary:
             for relation in brat_stable_ids:
                 # swap arguments if this is a symmetric relation
                 if symmetric_relations and relation not in candidate_stable_ids:
-                    relation = (relation[1],relation[0])
+                    relation = (relation[1], relation[0])
                 # otherwise just test if this relation is in our candidate set
                 if relation in candidate_stable_ids:
                     mapped_cands.append(candidate_stable_ids[relation])
@@ -253,24 +256,30 @@ class BratAnnotator(object):
                         sentence = brat_stable_ids[span].sentence
                         char_offsets = sentence.char_offsets
                         if span_entry.char_start not in char_offsets:
-                            missed.append((span, span_entry.get_span(), 'missed_tokenized'))
+                            missed.append((span, span_entry.get_span(), 'missed_tokenized', ''))
                             continue
                         if span_entry.char_end >= char_offsets[-1]:
                             last_token = sentence.words[-1]
                         else:
-                            last_word_index = next(x[0] for x in enumerate(char_offsets) if x[1] > span_entry.char_end) - 1
+                            last_word_index = next(
+                                x[0] for x in enumerate(char_offsets) if x[1] > span_entry.char_end) - 1
                             last_token = sentence.words[last_word_index]
                         if not span_entry.get_span().endswith(last_token):
-                            missed.append((span, span_entry.get_span(), 'missed_tokenized'))
+                            missed.append((span, span_entry.get_span(), 'missed_tokenized', ''))
                         else:
-                            missed.append((span, span_entry.get_span(), 'missed_candidate'))
+                            missed.append((span, span_entry.get_span(), 'missed_candidate', span_entry.get_attrib_span('pos_tags')))
 
-        with open(f'missed_{self.candidate_class.__name__}.pickle', 'wb') as file:
-            pickle.dump(missed, file)
-        with open(f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
+            for c in candidates[:1000]:
+                false_positives.append((c[0].get_stable_id(), c[0].get_span(), c[0].get_attrib_span('pos_tags')))
+
+        out_path = Path('brat-out')
+        out_path.mkdir(exist_ok=True)
+        with open(out_path/ f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
             file.writelines(['\t'.join(s) + '\n' for s in missed])
+        with open(out_path/ f'fp_{self.candidate_class.__name__}.tsv', 'w') as file:
+            file.writelines(['\t'.join(s) + '\n' for s in false_positives])
         n, N = len(mapped_cands), len(missed) + len(mapped_cands)
-        p = 0 if N == 0 else len(mapped_cands)/ float(N)
+        p = 0 if N == 0 else len(mapped_cands) / float(N)
         print("Mapped {}/{} ({:2.0f}%) of {} BRAT labels to {} candidates"
               .format(n, N, p * 100, self.candidate_class.__name__, self.candidate_class.__name__))
         return mapped_cands, len(missed)
@@ -300,7 +309,7 @@ class BratAnnotator(object):
         return tp, fp, tn, fn
 
     def score(self, session, candidates, marginals, annotation_dir,
-                       b=0.5, recall_correction=True, symmetric_relations=True):
+              b=0.5, recall_correction=True, symmetric_relations=True):
         """
 
         :param session:
@@ -319,7 +328,7 @@ class BratAnnotator(object):
         doc_names = set([os.path.basename(fp).split(".")[0] for fp in docs])
 
         subset_cands = [c for c in candidates if c.get_parent().document.name in doc_names]
-        marginals = {c.id:marginals[i] for i,c in enumerate(candidates)}
+        marginals = {c.id: marginals[i] for i, c in enumerate(candidates)}
 
         y_true = [1 if c in mapped_cands else 0 for c in subset_cands]
         y_pred = [1 if marginals[c.id] > b else 0 for c in subset_cands]
@@ -338,7 +347,7 @@ class BratAnnotator(object):
         return "{}/{}".format(self.data_root, annotation_dir)
 
     def import_gold_labels(self, session, annotation_dir, candidates, binary=True,
-                           symmetric_relations=True,  annotator_name='brat'):
+                           symmetric_relations=True, annotator_name='brat'):
         """
         We assume all candidates provided to this function are true instances
         :param session:
@@ -393,7 +402,7 @@ class BratAnnotator(object):
         cwd = os.getcwd()
         os.chdir("{}/{}/".format(self.path, self.brat_root))
         cmd = ["python", "standalone.py", "{}".format(self.port)]
-        self.process_group = subprocess.Popen(cmd, cwd=os.getcwd(), env=os.environ, shell=False )
+        self.process_group = subprocess.Popen(cmd, cwd=os.getcwd(), env=os.environ, shell=False)
         os.chdir(cwd)
         url = "http://{}:{}".format(self.address, self.port)
         print("Launching BRAT server at {} [pid={}]...".format(url, self.process_group.pid))
@@ -404,7 +413,7 @@ class BratAnnotator(object):
         :return:
         """
         fname = "{}/{}".format(self.path, 'brat-v1.3_Crunchy_Frog.tar.gz')
-        if os.path.exists("{}/{}/".format(self.path,self.brat_root)):
+        if os.path.exists("{}/{}/".format(self.path, self.brat_root)):
             return
 
         url = "http://weaver.nlplab.org/~brat/releases/brat-v1.3_Crunchy_Frog.tar.gz"
@@ -632,17 +641,17 @@ class StandoffAnnotations(object):
                         print("NotImplementedError: Discontinuous spans", file=sys.stderr)
                         continue
 
-                    i,j = spans[0]
+                    i, j = spans[0]
                     mention = doc_str[i:j]
                     # santity check to see if label span matches document span
                     if mention != text:
                         print("Error: Annotation spans do not match {} != {}".format(mention, text), file=sys.stderr)
                         continue
 
-                    annotations[anno_id] = {"abs_char_start":i, "abs_char_end":j,
-                                            "entity_type":entity_type, "mention":mention}
+                    annotations[anno_id] = {"abs_char_start": i, "abs_char_end": j,
+                                            "entity_type": entity_type, "mention": mention}
 
-                elif anno_id_prefix in [StandoffAnnotations.RELATION_ID,'*']:
+                elif anno_id_prefix in [StandoffAnnotations.RELATION_ID, '*']:
                     anno_id, rela = row
                     rela_type, arg1, arg2 = rela.split()
                     arg1 = arg1.split(":")[1] if ":" in arg1 else arg1
@@ -683,7 +692,7 @@ class StandoffAnnotations(object):
         for stype in candidate_types:
             rel_type = str(stype.type).rstrip(".type")
             arg_types = [key.rstrip("_id") for key in stype.__dict__ if "_id" in key]
-            arg_types = [name[0].upper()+name[1:] for name in arg_types]
+            arg_types = [name[0].upper() + name[1:] for name in arg_types]
 
             # HACK: Assume all args that differ by just a number are
             # of the same type, e.g., person1, person2
@@ -691,7 +700,7 @@ class StandoffAnnotations(object):
 
             entity_defs.extend(set(arg_types))
             if len(arg_types) > 1:
-                rela_name = [str(stype.type).replace(".type","")] + arg_types
+                rela_name = [str(stype.type).replace(".type", "")] + arg_types
                 rela_defs.append("{}\tArg1:{}, Arg2:{}".format(*rela_name))
 
         entity_defs = set(entity_defs)
@@ -727,10 +736,10 @@ class StandoffAnnotations(object):
             name, arg1, arg2 = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
             # convert relations to camel case
             name = self._normalize_relation_name(name)
-            arg2 = arg2.split(",")[0] # strip any <rel-type> defs
+            arg2 = arg2.split(",")[0]  # strip any <rel-type> defs
             arg1 = arg1.split("|")
             arg2 = arg2.split("|")
-            tmp.append((name,arg1,arg2))
+            tmp.append((name, arg1, arg2))
         config['relations'] = tmp
 
         tmp = []
@@ -759,6 +768,7 @@ def get_doc_ids_by_query(session, candidate_class, cid_query):
     q2 = session.query(Span.sentence_id).filter(Span.id.in_(q1)).subquery()
     return session.query(Sentence.document_id).filter(Sentence.id.in_(q2)).distinct()
 
+
 def get_doc_ids_by_split(session, candidate_class, split):
     """
     Given a Candidate.id set split, return all corresponding parent document ids
@@ -771,6 +781,7 @@ def get_doc_ids_by_split(session, candidate_class, split):
     cid_query = session.query(candidate_class.id).filter(candidate_class.split == split)
     return get_doc_ids_by_query(session, candidate_class, cid_query).all()
 
+
 def get_docs_by_split(session, candidate_class, split):
     """
 
@@ -782,6 +793,7 @@ def get_docs_by_split(session, candidate_class, split):
     cid_subquery = session.query(candidate_class.id).filter(candidate_class.split == 0)
     doc_subquery = get_doc_ids_by_query(session, candidate_class, cid_subquery)
     return session.query(Document).filter(Document.id.in_(doc_subquery)).all()
+
 
 def get_span_ids_by_cand_query(session, candidate_class, cid_query):
     """
@@ -796,6 +808,7 @@ def get_span_ids_by_cand_query(session, candidate_class, cid_query):
     span_pairs = q1.filter(Candidate.id.in_(cid_query)).all()
     return set(itertools.chain.from_iterable(span_pairs))
 
+
 def doc_to_text(doc):
     """
     Convert document object to original text represention.
@@ -806,7 +819,7 @@ def doc_to_text(doc):
     :return:
     """
     text = u""
-    for i,sent in enumerate(doc.sentences):
+    for i, sent in enumerate(doc.sentences):
         # setup padding so that BRAT displays a minimal amount of newlines
         # while still preserving char offsets
         if len(text) != sent.abs_char_offsets[0]:
@@ -814,3 +827,32 @@ def doc_to_text(doc):
             text += ' ' * (padding - 1) + u"\n"
         text += sent.text.rstrip(u' \t\n\r')
     return text
+
+
+def print_scores(ntp, nfp, ntn, nfn, title='Scores'):
+    prec, rec, f1 = binary_scores_from_counts(ntp, nfp, ntn, nfn)
+    pos_acc = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
+    neg_acc = ntn / float(ntn + nfp) if ntn + nfp > 0 else 0.0
+    print("========================================")
+    print(title)
+    print("========================================")
+    print("Pos. class accuracy: {:.3}".format(pos_acc))
+    print("Neg. class accuracy: {:.3}".format(neg_acc))
+    print("Precision            {:.3}".format(prec))
+    print("Recall               {:.3}".format(rec))
+    print("F1                   {:.3}".format(f1))
+    print("----------------------------------------")
+    print("TP: {} | FP: {} | TN: {} | FN: {}".format(ntp, nfp, ntn, nfn))
+    print("========================================\n")
+
+
+def binary_scores_from_counts(ntp, nfp, ntn, nfn):
+    """
+    Precision, recall, and F1 scores from counts of TP, FP, TN, FN.
+    Example usage:
+        p, r, f1 = binary_scores_from_counts(*map(len, error_sets))
+    """
+    prec = ntp / float(ntp + nfp) if ntp + nfp > 0 else 0.0
+    rec = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
+    f1 = (2 * prec * rec) / (prec + rec) if prec + rec > 0 else 0.0
+    return prec, rec, f1
