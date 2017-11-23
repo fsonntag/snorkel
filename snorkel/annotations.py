@@ -84,7 +84,7 @@ class csr_AnnotationMatrix(sparse.csr_matrix):
         X = super(csr_AnnotationMatrix, self).__getitem__(key)
 
         # If X is an integer, just return it
-        if isinstance(X, int):
+        if type(X) in [np.int64, np.int32, int]:
             return X
         # If X is a matrix, make sure it stays a csr_AnnotationMatrix
         elif not isinstance(X, csr_AnnotationMatrix):

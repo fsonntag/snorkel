@@ -1,6 +1,6 @@
 from functools import partial
 
-from models.candidate import wrap_candidate
+from snorkel.contrib.snark.models.candidate import wrap_candidate
 from snorkel.annotations import load_label_matrix
 from snorkel.models.annotation import Label, LabelKey
 from snorkel.models.meta import snorkel_conn_string
@@ -59,7 +59,7 @@ class SparkLabelAnnotator:
                 {'name': lf.__name__, 'group': 0}).inserted_primary_key[0]
 
             labels = self.split_cache[split].map(lambda c: (c.id, lf(c)))
-            labels.filter(lambda (_, value): value != 0 and value is not None)
+            labels.filter(lambda value: value[1] != 0 and value[1] is not None)
             for cid, value in labels.toLocalIterator():
                 label_tuples.append({
                     'candidate_id': cid, 'key_id': lf_id, 'value': value})
