@@ -64,9 +64,9 @@ def load_external_labels(session, candidate_class, annotator_name='gold'):
     #             known.append( (p1,p2) )
 
 
-    # print len(set(known))
+    # print(len(set(known)))
     # for c in sorted(set(known)):
-    #     print ",".join(c)
+    #     print(",".join(c))
 
 
 
@@ -81,7 +81,7 @@ def check_exercise_1(subclass):
     """
     v = subclass.__mapper_args__['polymorphic_identity'] == "person"
     v &= len(subclass.__argnames__) == 1 and 'person' in subclass.__argnames__
-    print 'Correct!' if v else 'Sorry, try again!'
+    print('Correct!' if v else 'Sorry, try again!')
 
 
 def check_exercise_2(c):

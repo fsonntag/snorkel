@@ -104,11 +104,11 @@ class RNNBase(TFNoiseAwareModel):
                 initial_state_bw=initial_state_bw,
                 time_major=False               
             )
-        potentials = get_bi_rnn_output(rnn_out, dim, self.sentence_lengths)
+        self.potentials = get_bi_rnn_output(rnn_out, dim, self.sentence_lengths)
         
         # Add dropout layer
         self.keep_prob = tf.placeholder(tf.float32)
-        potentials_dropout = tf.nn.dropout(potentials, self.keep_prob, seed=s3)
+        potentials_dropout = tf.nn.dropout(self.potentials, self.keep_prob, seed=s3)
 
         # Build activation layer
         if self.cardinality > 2:
@@ -116,13 +116,13 @@ class RNNBase(TFNoiseAwareModel):
             W = tf.Variable(tf.random_normal((2*dim, self.cardinality), 
                 stddev=SD, seed=s4))
             b = tf.Variable(np.zeros(self.cardinality), dtype=tf.float32)
-            self.logits = tf.matmul(potentials, W) + b
+            self.logits = tf.matmul(self.potentials, W) + b
             self.marginals_op = tf.nn.softmax(self.logits)
         else:
             self.Y = tf.placeholder(tf.float32, [None])
             W = tf.Variable(tf.random_normal((2*dim, 1), stddev=SD, seed=s4))
             b = tf.Variable(0., dtype=tf.float32)
-            self.logits = tf.squeeze(tf.matmul(potentials, W)) + b
+            self.logits = tf.squeeze(tf.matmul(self.potentials, W)) + b
             self.marginals_op = tf.nn.sigmoid(self.logits)
 
     def _construct_feed_dict(self, X_b, Y_b, lr=0.01, dropout=None, **kwargs):
@@ -171,4 +171,22 @@ class RNNBase(TFNoiseAwareModel):
             self.sentences:        x,
             self.sentence_lengths: x_len,
             self.keep_prob:        1.0,
+        })
+
+    def embed(self, test_candidates):
+
+        # Preprocess if not already preprocessed
+        if isinstance(test_candidates[0], Candidate):
+            X_test, ends = self._preprocess_data(test_candidates, extend=False)
+            self._check_max_sentence_length(ends)
+        else:
+            X_test = test_candidates
+
+        # Make tensor and run prediction op
+        x, x_len = self._make_tensor(X_test)
+
+        return self.session.run(self.potentials, {
+            self.sentences: x,
+            self.sentence_lengths: x_len,
+            self.keep_prob: 1.0,
         })

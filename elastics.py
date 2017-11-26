@@ -22,14 +22,14 @@ class ElasticSession:
 	#get the index mapping
 	def get_map(self):
 		mapping = es.indices.get_mapping(self.indexName)
-		print 'Index Mapping'
+		print('Index Mapping')
 		print(json.dumps(mapping, indent=2))
 
 	#get all index information
 	def get_index(self):
-		print 'Index Information: '
-		print ' '
-		print es.cat.indices(v='true')
+		print('Index Information: ')
+		print(' ')
+		print(es.cat.indices(v='true'))
 
 	#get a document by its id number
 	def get_doc(self,iden):
@@ -87,7 +87,7 @@ class ElasticSession:
 					}}}}
 		#create the index
 		es.indices.create(index = self.indexName, body = request_body)
-		print 'Begin indexing'
+		print('Begin indexing')
 		docCount=0
 		for p in session.query(Document):
 			docCount+=1
@@ -102,14 +102,14 @@ class ElasticSession:
 						'fillCand':['o']*value
 					})
 		self.get_index()
-		print '%d items indexed'%docCount
-		print ""
+		print('%d items indexed'%docCount)
+		print("")
 		
 
 	def generate_tags(self,Cands):
 		self.set_cand(Cands)
 
-		print "Begin generating tags"
+		print("Begin generating tags")
 		unique=[]
 		total=0
 		#Get all the sentences in our candidate set
@@ -170,7 +170,7 @@ class ElasticSession:
 
 		#Most candidates that can not be tagged are ones that correspond to punctuation and spaces
 		#those are automatically stripped when the string is tokenized
-		print '%d candidates of %d tagged'%((total-flagNum),(total))
+		print('%d candidates of %d tagged'%((total-flagNum),(total)))
 
 	def search_index(self,keyWord,*args,**keyword_parameters):
 		check = 0
@@ -303,7 +303,7 @@ class ElasticSession:
 				}
 
 		else:
-			print 'QUERY TYPE NOT FOUND'
+			print('QUERY TYPE NOT FOUND')
 			return
 
 		#Size indicates how many search results to return		
@@ -323,7 +323,7 @@ class ElasticSession:
 
 		
 		temp=[]
-		print "Number of hits: %d" %searchResult['hits']['total']
+		print("Number of hits: %d" %searchResult['hits']['total'])
 		#get sentence numbers from the search results
 		for i in searchResult['hits']['hits']:
 		    temp.append(i['_source']['lineNum'])
@@ -349,4 +349,4 @@ class ElasticSession:
 #deletes an elasticsearch index taking the index name as a parameter 
 #the _all flag will delete all indecies
 def delete_index(indexName):
-	print es.indices.delete(index=indexName,ignore=404)
+	print(es.indices.delete(index=indexName,ignore=404))
