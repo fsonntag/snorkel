@@ -42,6 +42,6 @@ class TagRNN(RNNBase):
             s = self.tag(tokens, labels)
             # Either extend word table or retrieve from it
             f = self.word_dict.get if extend else self.word_dict.lookup
-            data.append(np.array(map(f, s)))
+            data.append(np.array(list(map(f, s))))
             ends.append(candidate[0].get_word_end())
         return data, ends

@@ -81,7 +81,7 @@ def corenlp_to_xmltree(s, prune_root=True):
   # Also ensure that we are using CoreNLP-native indexing (root=0, 1-base word indexes)!
   b = min(dep_parents)
   if b != 0:
-    dep_parents = map(lambda j : j - b, dep_parents)
+    dep_parents = list(map(lambda j : j - b, dep_parents))
 
   # Parse recursively
   root = corenlp_to_xmltree_sub(s, dep_parents, 0)
