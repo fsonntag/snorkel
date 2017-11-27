@@ -841,7 +841,7 @@ class GenerativeModel(Classifier):
         save_path2 = os.path.join(save_dir, "{0}.hps.pkl".format(model_name))
         with open(save_path2, 'rb') as f:
             hps = load(f)
-            for k, v in hps.iteritems():
+            for k, v in hps.items():
                 setattr(self, k, v)
         if verbose:
             print("[{0}] Model <{1}> loaded.".format(self.name, model_name))

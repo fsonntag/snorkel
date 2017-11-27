@@ -187,7 +187,7 @@ class BratAnnotator(object):
         display(HTML("<style>.container { width:100% !important; }</style>"))
         display(IFrame(url, width=width, height=height))
 
-    def map_annotations(self, session, annotation_dir, candidates, binary=True, symmetric_relations=True):
+    def map_annotations(self, session, annotation_dir, candidates, binary=True, symmetric_relations=True, out_path=Path('brat-out')):
         """
         Import a collection of BRAT annotations,  map it onto the provided set
         of candidates, and create gold labels. This method DOES NOT create new
@@ -272,7 +272,6 @@ class BratAnnotator(object):
             for c in candidates[:1000]:
                 false_positives.append((c[0].get_stable_id(), c[0].get_span(), c[0].get_attrib_span('pos_tags')))
 
-        out_path = Path('brat-out')
         out_path.mkdir(exist_ok=True)
         with open(out_path/ f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
             file.writelines(['\t'.join(s) + '\n' for s in missed])
@@ -347,7 +346,7 @@ class BratAnnotator(object):
         return "{}/{}".format(self.data_root, annotation_dir)
 
     def import_gold_labels(self, session, annotation_dir, candidates, binary=True,
-                           symmetric_relations=True, annotator_name='brat'):
+                           symmetric_relations=True, annotator_name='brat', out_path=Path('brat-out')):
         """
         We assume all candidates provided to this function are true instances
         :param session:
@@ -355,7 +354,7 @@ class BratAnnotator(object):
         :param annotator_name:
         :return:
         """
-        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, binary, symmetric_relations)
+        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, binary, symmetric_relations, out_path=Path('brat-out'))
 
         for c in mapped_cands:
             if self.session.query(GoldLabel).filter(and_(GoldLabel.key_id == self.annotator.id,
