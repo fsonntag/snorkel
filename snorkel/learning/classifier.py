@@ -86,7 +86,7 @@ class Classifier(object):
 
     def error_analysis(self, session, X_test, Y_test, 
         gold_candidate_set=None, b=0.5, set_unlabeled_as_neg=True, display=True,
-        scorer=MentionScorer, **kwargs):
+                       scorer=MentionScorer, **kwargs):
         """
         Prints full score analysis using the Scorer class, and then returns the
         a tuple of sets conatining the test candidates bucketed for error 

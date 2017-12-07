@@ -1,20 +1,21 @@
+import inspect
 import os
 import time
-import math
-import matplotlib
+from collections import defaultdict
+from itertools import product
+from multiprocessing import Process, JoinableQueue
+
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sparse
-import warnings
-import inspect
-from itertools import product
-from multiprocessing import Process, Queue, JoinableQueue
+
 try:
     from queue import Empty
 except:
     from Queue import Empty
 
 from pandas import DataFrame
+
 
 # matplotlib.use('Agg')
 # warnings.filterwarnings("ignore", module="matplotlib")
@@ -37,7 +38,7 @@ def reshape_marginals(marginals):
     if len(shape) != 1:
         # If k = 2, make sure is M-dim array
         if shape[1] == 2:
-            marginals = marginals[:,1].reshape(-1)
+            marginals = marginals[:, 1].reshape(-1)
     return marginals
 
 
@@ -59,15 +60,15 @@ class LabelBalancer(object):
     def _try_frac(self, m, n, pn):
         # Return (a, b) s.t. a <= m, b <= n
         # and b / a is as close to pn as possible
-        r = int(round(float(pn * m) / (1.0-pn)))
-        s = int(round(float((1.0-pn) * n) / pn))
-        return (m,r) if r <= n else ((s,n) if s <= m else (m,n))
+        r = int(round(float(pn * m) / (1.0 - pn)))
+        s = int(round(float((1.0 - pn) * n) / pn))
+        return (m, r) if r <= n else ((s, n) if s <= m else (m, n))
 
     def _get_counts(self, nneg, npos, frac_pos):
         if frac_pos > 0.5:
             return self._try_frac(nneg, npos, frac_pos)
         else:
-            return self._try_frac(npos, nneg, 1.0-frac_pos)[::-1]
+            return self._try_frac(npos, nneg, 1.0 - frac_pos)[::-1]
 
     def get_train_idxs(self, rebalance=False, split=0.5, rand_state=None):
         """Get training indices based on @y
@@ -91,13 +92,13 @@ class LabelBalancer(object):
         return idxs
 
 
-
 ############################################################
 ### Advanced Scoring Classes
 ############################################################
 
 class Scorer(object):
     """Abstract type for scorers"""
+
     def __init__(self, test_candidates, test_labels, gold_candidate_set=None):
         """
         :param test_candidates: A *list of Candidates* corresponding to
@@ -107,8 +108,8 @@ class Scorer(object):
         :param gold_candidate_set: (optional) A *CandidateSet* containing the
             full set of gold labeled candidates
         """
-        self.test_candidates    = test_candidates
-        self.test_labels        = test_labels
+        self.test_candidates = test_candidates
+        self.test_labels = test_labels
         self.gold_candidate_set = gold_candidate_set
 
     def _get_cardinality(self, marginals):
@@ -127,11 +128,11 @@ class Scorer(object):
             return self._score_categorical(test_marginals, **kwargs)
 
     def _score_binary(self, test_marginals, train_marginals=None, b=0.5,
-        set_unlabeled_as_neg=True, display=True):
+                      set_unlabeled_as_neg=True, display=True):
         raise NotImplementedError()
 
     def _score_categorical(self, test_marginals, train_marginals=None,
-        display=True):
+                           display=True):
         raise NotImplementedError()
 
     def summary_score(self, test_marginals, **kwargs):
@@ -139,11 +140,21 @@ class Scorer(object):
         raise NotImplementedError()
 
 
+class Counts:
+    def __init__(self):
+        self.tp, self.fp, self.tn, self.fn, self.fp_ov, self.fn_ov = \
+            set(), set(), set(), set(), set(), set()
+        self.types = set()
+        self.t_tp, self.t_fp, self.t_tn, self.t_fn, self.t_fp_ov, self.t_fn_ov = \
+            defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set)
+
+
 class MentionScorer(Scorer):
     """Scorer for mention level assessment"""
+
     def _score_binary(self, test_marginals, train_marginals=None, b=0.5,
-        set_unlabeled_as_neg=True, set_at_thresh_as_neg=True, display=True,
-        **kwargs):
+                      set_unlabeled_as_neg=True, set_at_thresh_as_neg=True, display=True,
+                      **kwargs):
         """
         Return scoring metric for the provided marginals, as well as candidates
         in error buckets.
@@ -159,60 +170,116 @@ class MentionScorer(Scorer):
         :param display: show calibration plots?
         """
         test_label_array = []
-        tp = set()
-        fp = set()
-        tn = set()
-        fn = set()
 
+        counts = Counts()
+
+        # self.test_candidates.
+        candidates_by_types = defaultdict(list)
         for i, candidate in enumerate(self.test_candidates):
-            # Handle either a LabelMatrix or else assume test_labels array is in
-            # correct order i.e. same order as test_candidates
-            try:
-                test_label_index = self.test_labels.get_row_index(candidate)
-                test_label = self.test_labels[test_label_index, 0]
-            except AttributeError:
-                test_label = self.test_labels[i]
+            candidates_by_types[candidate.__tablename__].append((i, candidate))
 
-            # Set unlabeled examples to -1 by default
-            if test_label == 0 and set_unlabeled_as_neg:
-                test_label = -1
+        for type, candidates in candidates_by_types.items():
+            candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start))
 
-            # Bucket the candidates for error analysis
-            test_label_array.append(test_label)
-            if test_label != 0:
-                if test_marginals[i] > b:
-                    if test_label == 1:
-                        tp.add(candidate)
-                    else:
-                        fp.add(candidate)
-                elif test_marginals[i] < b or set_at_thresh_as_neg:
-                    if test_label == -1:
-                        tn.add(candidate)
-                    else:
-                        fn.add(candidate)
+            counts.types.add(type)
+            for type_i, (i, candidate) in enumerate(candidates):
+                test_label = self._get_label_for_candidate(i, candidate)
+
+                # Set unlabeled examples to -1 by default
+                if test_label == 0 and set_unlabeled_as_neg:
+                    test_label = -1
+
+                # Bucket the candidates for error analysis
+                test_label_array.append(test_label)
+                if test_label != 0:
+                    if test_marginals[i] > b:
+                        if test_label == 1:
+                            counts.tp.add(candidate)
+                            counts.t_tp[type].add(candidate)
+                        else:
+                            counts.fp.add(candidate)
+                            counts.t_fp[type].add(candidate)
+                            if self._overlapping_label_is_value(1, type_i, candidate, candidates, set_unlabeled_as_neg):
+                                counts.fp_ov.add(candidate)
+                                counts.t_fp_ov[type].add(candidate)
+
+                    elif test_marginals[i] < b or set_at_thresh_as_neg:
+                        if test_label == -1:
+                            counts.tn.add(candidate)
+                            counts.t_tn[type].add(candidate)
+                        else:
+                            counts.fn.add(candidate)
+                            counts.t_fn[type].add(candidate)
+                            if self._overlapping_label_is_value(-1, type_i, candidate, candidates,
+                                                                set_unlabeled_as_neg):
+                                counts.fn_ov.add(candidate)
+                                counts.t_fn_ov[type].add(candidate)
+
         if display:
-
             # Calculate scores unadjusted for TPs not in our candidate set
-            print_scores(len(tp), len(fp), len(tn), len(fn),
-                title="Scores (Un-adjusted)")
+            print_scores_from_counts(counts, "Scores (Un-adjusted)")
 
             # If gold candidate set is provided calculate recall-adjusted scores
             if self.gold_candidate_set is not None:
                 gold_fn = [c for c in self.gold_candidate_set
-                    if c not in self.test_candidates]
+                           if c not in self.test_candidates]
                 print("\n")
-                print_scores(len(tp), len(fp), len(tn), len(fn)+len(gold_fn),
-                    title="Corpus Recall-adjusted Scores")
+                print_scores(len(counts.tp), len(counts.fp), len(counts.tn), len(counts.fn) + len(gold_fn),
+                             title="Corpus Recall-adjusted Scores")
 
             # If training and test marginals provided print calibration plots
             if train_marginals is not None and test_marginals is not None:
                 print("\nCalibration plot:")
                 calibration_plots(train_marginals, test_marginals,
-                    np.asarray(test_label_array))
-        return tp, fp, tn, fn
+                                  np.asarray(test_label_array))
+        return counts
+
+    def _get_label_for_candidate(self, i, candidate):
+        # Handle either a LabelMatrix or else assume test_labels array is in
+        # correct order i.e. same order as test_candidates
+        try:
+            test_label_index = self.test_labels.get_row_index(candidate)
+            return self.test_labels[test_label_index, 0]
+        except AttributeError:
+            return self.test_labels[i]
+
+    def _overlapping_label_is_value(self, label, i, candidate, candidates, set_unlabeled_as_neg=True):
+        j = i - 1
+        before_overlapping = True
+        while before_overlapping and 0 <= j:
+            before_candidate = candidates[j][1]
+            if before_candidate[0].sentence_id != candidate[0].sentence_id:
+                break
+            if candidate[0].char_start < before_candidate[0].char_end \
+                    and candidate[0].char_end > before_candidate[0].char_start:
+                test_label = self._get_label_for_candidate(j, before_candidate)
+                if test_label == 0 and set_unlabeled_as_neg:
+                    test_label = -1
+                if test_label == label:
+                    return True
+                j -= 1
+            else:
+                before_overlapping = False
+        after_overlapping = True
+        j = i + 1
+        while after_overlapping and len(candidates) > j:
+            after_candidate = candidates[j][1]
+            if after_candidate[0].sentence_id != candidate[0].sentence_id:
+                break
+            if candidate[0].char_start < after_candidate[0].char_end \
+                    and candidate[0].char_end > after_candidate[0].char_start:
+                test_label = self._get_label_for_candidate(j, after_candidate)
+                if test_label == 0 and set_unlabeled_as_neg:
+                    test_label = -1
+                if test_label == label:
+                    return True
+                j += 1
+            else:
+                after_overlapping = False
+        return False
 
     def _score_categorical(self, test_marginals, train_marginals=None,
-        display=True, **kwargs):
+                           display=True, **kwargs):
         """
         Return scoring metric for the provided marginals, as well as candidates
         in error buckets.
@@ -251,7 +318,7 @@ class MentionScorer(Scorer):
             # If gold candidate set is provided calculate recall-adjusted scores
             if self.gold_candidate_set is not None:
                 gold_missed = [c for c in self.gold_candidate_set
-                    if c not in self.test_candidates]
+                               if c not in self.test_candidates]
                 print("Coverage:", (nc + ni) / (nc + ni + len(gold_missed)))
         return correct, incorrect
 
@@ -261,27 +328,72 @@ class MentionScorer(Scorer):
         Also return the label as second argument.
         """
         error_sets = self.score(test_marginals, display=False, **kwargs)
-        if len(error_sets) == 4:
-            _, _, f1 = binary_scores_from_counts(*map(len, error_sets))
+        if len(error_sets) == 1:
+            _, _, f1 = binary_scores_from_counts(
+                *map(len, [error_sets.tp, error_sets.fp, error_sets.fn, error_sets.fp]))
             return f1, "F1 Score"
         else:
             nc, ninc = map(len, error_sets)
             return nc / float(nc + ninc), "Accuracy"
 
 
-def binary_scores_from_counts(ntp, nfp, ntn, nfn):
+def binary_scores_from_counts(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None):
     """
     Precision, recall, and F1 scores from counts of TP, FP, TN, FN.
     Example usage:
         p, r, f1 = binary_scores_from_counts(*map(len, error_sets))
     """
     prec = ntp / float(ntp + nfp) if ntp + nfp > 0 else 0.0
-    rec  = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
-    f1   = (2 * prec * rec) / (prec + rec) if prec + rec > 0 else 0.0
-    return prec, rec, f1
+    rec = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
+    f1 = (2 * prec * rec) / (prec + rec) if prec + rec > 0 else 0.0
+
+    if not nfp_ov and not nfn_ov:
+        return prec, rec, f1
+    else:
+        _fp_ov = nfp - nfp_ov
+        _fn_ov = nfn - nfn_ov
+        _tp_ov = ntp + nfp_ov + nfn_ov
+
+        prec_ov = _tp_ov / (_tp_ov + _fp_ov) if _tp_ov + _fp_ov > 0 else 0.0
+        rec_ov = _tp_ov / (_tp_ov + _fn_ov) if _tp_ov + _fn_ov > 0 else 0.0
+        f1_ov = (2 * prec_ov * rec_ov) / (prec_ov + rec_ov) if prec_ov + rec_ov > 0 else 0.0
+
+        _tp_half_ov = ntp + (nfp_ov + nfn_ov) / 2
+        _fp_half_ov = nfp - nfp_ov
+        _fn_half_ov = nfn - nfn_ov
+        prec_half_ov = _tp_half_ov / (
+                ntp + nfp_ov + nfn_ov + _fp_half_ov) if ntp + nfp_ov + nfn_ov + _fp_half_ov > 0 else 0.0
+        rec_half_ov = _tp_half_ov / (
+                ntp + nfp_ov + nfn_ov + _fn_half_ov) if ntp + nfp_ov + nfn_ov + _fn_half_ov > 0 else 0.0
+        f1_half_ov = (2 * prec_half_ov * rec_half_ov) / (
+                prec_half_ov + rec_half_ov) if prec_half_ov + rec_half_ov > 0 else 0.0
+        return prec, rec, f1, prec_ov, rec_ov, f1_ov, prec_half_ov, rec_half_ov, f1_half_ov
 
 
-def print_scores(ntp, nfp, ntn, nfn, title='Scores'):
+def print_scores_from_counts(counts, title='Scores'):
+    print("General scores")
+    print_scores(len(counts.tp),
+                 len(counts.fp),
+                 len(counts.tn),
+                 len(counts.fn),
+                 len(counts.fp_ov),
+                 len(counts.fn_ov),
+                 title=title)
+    for type in counts.types:
+        print(f"Scores for {type}")
+        print_scores(len(counts.t_tp[type]),
+                     len(counts.t_fp[type]),
+                     len(counts.t_tn[type]),
+                     len(counts.t_fn[type]),
+                     len(counts.t_fp_ov[type]),
+                     len(counts.t_fn_ov[type]),
+                     title=title)
+
+
+def print_scores(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None, title='Scores'):
+    if nfp_ov and nfn_ov:
+        print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov=nfp_ov, nfn_ov=nfn_ov, title='Scores')
+        return
     prec, rec, f1 = binary_scores_from_counts(ntp, nfp, ntn, nfn)
     pos_acc = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
     neg_acc = ntn / float(ntn + nfp) if ntn + nfp > 0 else 0.0
@@ -298,6 +410,30 @@ def print_scores(ntp, nfp, ntn, nfn, title='Scores'):
     print("========================================\n")
 
 
+def print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov, title='Scores'):
+    prec, rec, f1, prec_ov, rec_ov, f1_ov, prec_half_ov, rec_half_ov, f1_half_ov \
+        = binary_scores_from_counts(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov)
+    pos_acc = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
+    neg_acc = ntn / float(ntn + nfp) if ntn + nfp > 0 else 0.0
+    print("=====================================================")
+    print(title)
+    print("=====================================================")
+    print("Pos. class accuracy:                            {:.3}".format(pos_acc))
+    print("Neg. class accuracy:                            {:.3}".format(neg_acc))
+    print("Precision                                       {:.3}".format(prec))
+    print("Recall                                          {:.3}".format(rec))
+    print("F1                                              {:.3}".format(f1))
+    print("Overl. Precision                                {:.3}".format(prec))
+    print("Overl. Recall                                   {:.3}".format(rec))
+    print("Overl. F1                                       {:.3}".format(f1))
+    print("Half overl. Precision                           {:.3}".format(prec))
+    print("Half overl. Recall                              {:.3}".format(rec))
+    print("Half overl. F1                                  {:.3}".format(f1))
+    print("------------------------------------------------------")
+    print("TP: {} | FP: {} | TN: {} | FN: {} | FP OV: {} | FN OV: {}"
+          .format(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov))
+    print("======================================================\n")
+
 
 ############################################################
 ### Calibration plots (currently unused, but should put back in?)
@@ -305,21 +441,21 @@ def print_scores(ntp, nfp, ntn, nfn, title='Scores'):
 
 def plot_prediction_probability(probs):
     plt.hist(probs, bins=20, normed=False, facecolor='blue')
-    plt.xlim((0,1.025))
+    plt.xlim((0, 1.025))
     plt.xlabel("Probability")
     plt.ylabel("# Predictions")
 
 
 def plot_accuracy(probs, ground_truth):
     x = 0.1 * np.array(range(11))
-    bin_assign = [x[i] for i in np.digitize(probs, x)-1]
-    correct = ((2*(probs >= 0.5) - 1) == ground_truth)
+    bin_assign = [x[i] for i in np.digitize(probs, x) - 1]
+    correct = ((2 * (probs >= 0.5) - 1) == ground_truth)
     correct_prob = np.array([np.mean(correct[bin_assign == p]) for p in x])
     xc = x[np.isfinite(correct_prob)]
     correct_prob = correct_prob[np.isfinite(correct_prob)]
-    plt.plot(x, np.abs(x-0.5) + 0.5, 'b--', xc, correct_prob, 'ro-')
-    plt.xlim((0,1))
-    plt.ylim((0,1))
+    plt.plot(x, np.abs(x - 0.5) + 0.5, 'b--', xc, correct_prob, 'ro-')
+    plt.xlim((0, 1))
+    plt.ylim((0, 1))
     plt.xlabel("Probability")
     plt.ylabel("Accuracy")
 
@@ -329,23 +465,21 @@ def calibration_plots(train_marginals, test_marginals, gold_labels=None):
     n_plots = 3 if gold_labels is not None else 1
 
     # Whole set histogram
-    plt.subplot(1,n_plots,1)
+    plt.subplot(1, n_plots, 1)
     plot_prediction_probability(train_marginals)
     plt.title("(a) # Predictions (training set)")
 
     if gold_labels is not None:
-
         # Hold-out histogram
-        plt.subplot(1,n_plots,2)
+        plt.subplot(1, n_plots, 2)
         plot_prediction_probability(test_marginals)
         plt.title("(b) # Predictions (test set)")
 
         # Classification bucket accuracy
-        plt.subplot(1,n_plots,3)
+        plt.subplot(1, n_plots, 3)
         plot_accuracy(test_marginals, gold_labels)
         plt.title("(c) Accuracy (test set)")
     plt.show()
-
 
 
 ############################################################
@@ -370,22 +504,23 @@ class GridSearch(object):
             included in the grid search will be overwritten.
     :param save_dir: Note that checkpoints will be saved in save_dir/grid_search
     """
+
     def __init__(self, model_class, parameter_dict, X_train, Y_train=None,
-        model_class_params={}, model_hyperparams={}, save_dir='checkpoints'):
-        self.model_class        = model_class
-        self.parameter_dict     = parameter_dict
-        self.param_names        = parameter_dict.keys()
-        self.X_train            = X_train
-        self.Y_train            = Y_train
+                 model_class_params={}, model_hyperparams={}, save_dir='checkpoints'):
+        self.model_class = model_class
+        self.parameter_dict = parameter_dict
+        self.param_names = parameter_dict.keys()
+        self.X_train = X_train
+        self.Y_train = Y_train
         self.model_class_params = model_class_params
-        self.model_hyperparams  = model_hyperparams
-        self.save_dir           = os.path.join(save_dir, 'grid_search')
+        self.model_hyperparams = model_hyperparams
+        self.save_dir = os.path.join(save_dir, 'grid_search')
 
     def search_space(self):
         return product(*[self.parameter_dict[pn] for pn in self.param_names])
 
-    def fit(self, X_valid, Y_valid, b=0.5, beta=1, set_unlabeled_as_neg=True, 
-        n_threads=1, eval_batch_size=None):
+    def fit(self, X_valid, Y_valid, b=0.5, beta=1, set_unlabeled_as_neg=True,
+            n_threads=1, eval_batch_size=None):
         """
         Runs grid search, constructing a new instance of model_class for each
         hyperparameter combination, training on (self.X_train, self.Y_train),
@@ -400,16 +535,16 @@ class GridSearch(object):
         """
         if n_threads > 1:
             opt_model, run_stats = self._fit_mt(X_valid, Y_valid, b=b,
-                beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
-                n_threads=n_threads, eval_batch_size=eval_batch_size)
+                                                beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
+                                                n_threads=n_threads, eval_batch_size=eval_batch_size)
         else:
-            opt_model, run_stats = self._fit_st(X_valid, Y_valid, b=b, 
-                beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
-                eval_batch_size=eval_batch_size)
+            opt_model, run_stats = self._fit_st(X_valid, Y_valid, b=b,
+                                                beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
+                                                eval_batch_size=eval_batch_size)
         return opt_model, run_stats
 
     def _fit_st(self, X_valid, Y_valid, b=0.5, beta=1,
-        set_unlabeled_as_neg=True, eval_batch_size=None):
+                set_unlabeled_as_neg=True, eval_batch_size=None):
         """Single-threaded implementation of `GridSearch.fit`."""
         # Iterate over the param values
         run_stats = []
@@ -428,9 +563,9 @@ class GridSearch(object):
                 hps[pn] = pv
             print("=" * 60)
             NUMTYPES = [float, int, np.float64]
-            print("[%d] Testing %s" % (k+1, ', '.join([
+            print("[%d] Testing %s" % (k + 1, ', '.join([
                 "%s = %s" % (pn, ("%0.2e" % pv) if type(pv) in NUMTYPES else pv)
-                for pn,pv in zip(self.param_names, param_vals)
+                for pn, pv in zip(self.param_names, param_vals)
             ])))
             print("=" * 60)
 
@@ -438,7 +573,7 @@ class GridSearch(object):
             train_args = [self.X_train]
             if self.Y_train is not None:
                 train_args.append(self.Y_train)
-            
+
             # Pass in the dev set to the train method if applicable, for dev set
             # score printing, best-score checkpointing
             # Note: Need to set the save directory since passing in
@@ -457,14 +592,14 @@ class GridSearch(object):
 
             # Test the model
             run_scores = model.score(X_valid, Y_valid, b=b, beta=beta,
-                set_unlabeled_as_neg=set_unlabeled_as_neg,
-                batch_size=eval_batch_size)
+                                     set_unlabeled_as_neg=set_unlabeled_as_neg,
+                                     batch_size=eval_batch_size)
 
             if model.cardinality > 2:
                 run_score, run_score_label = run_scores, "Accuracy"
                 run_scores = [run_score]
             else:
-                run_score  = run_scores[-1]
+                run_score = run_scores[-1]
                 run_score_label = "F-{0} Score".format(beta)
 
             # Add scores to running stats, print, and set as optimal if best
@@ -481,7 +616,7 @@ class GridSearch(object):
         # Set optimal parameter in the learner model
         opt_model = self.model_class(**self.model_class_params)
         opt_model.load(opt_model_name, save_dir=self.save_dir)
-        
+
         # Return optimal model & DataFrame of scores
         f_score = 'F-{0}'.format(beta)
         run_score_labels = ['Acc.'] if opt_model.cardinality > 2 else \
@@ -492,8 +627,8 @@ class GridSearch(object):
         ).sort_values(by=sort_by, ascending=False)
         return opt_model, self.results
 
-    def _fit_mt(self, X_valid, Y_valid, b=0.5, beta=1, 
-        set_unlabeled_as_neg=True, n_threads=2, eval_batch_size=None):
+    def _fit_mt(self, X_valid, Y_valid, b=0.5, beta=1,
+                set_unlabeled_as_neg=True, n_threads=2, eval_batch_size=None):
         """Multi-threaded implementation of `GridSearch.fit`."""
         # First do a preprocessing pass over the data to make sure it is all
         # non-lazily loaded
@@ -521,10 +656,10 @@ class GridSearch(object):
         ps = []
         for i in range(n_threads):
             p = ModelTester(self.model_class, self.model_class_params,
-                    params_queue, scores_queue, self.X_train, X_valid, Y_valid,
-                    Y_train=self.Y_train, b=b, save_dir=self.save_dir,
-                    set_unlabeled_as_neg=set_unlabeled_as_neg,
-                    eval_batch_size=eval_batch_size)
+                            params_queue, scores_queue, self.X_train, X_valid, Y_valid,
+                            Y_train=self.Y_train, b=b, save_dir=self.save_dir,
+                            set_unlabeled_as_neg=set_unlabeled_as_neg,
+                            eval_batch_size=eval_batch_size)
             p.start()
             ps.append(p)
 
@@ -568,11 +703,12 @@ class GridSearch(object):
 
 QUEUE_TIMEOUT = 3
 
+
 class ModelTester(Process):
-    def __init__(self, model_class, model_class_params, params_queue, 
-        scores_queue, X_train, X_valid, Y_valid, Y_train=None, b=0.5, beta=1,
-        set_unlabeled_as_neg=True, save_dir='checkpoints',
-        eval_batch_size=None):
+    def __init__(self, model_class, model_class_params, params_queue,
+                 scores_queue, X_train, X_valid, Y_valid, Y_train=None, b=0.5, beta=1,
+                 set_unlabeled_as_neg=True, save_dir='checkpoints',
+                 eval_batch_size=None):
         Process.__init__(self)
         self.model_class = model_class
         self.model_class_params = model_class_params
@@ -620,8 +756,8 @@ class ModelTester(Process):
                 model.save(model_name=model_name, save_dir=self.save_dir)
 
                 # Test the model
-                run_scores = model.score(self.X_valid, self.Y_valid, 
-                    **self.scorer_params)
+                run_scores = model.score(self.X_valid, self.Y_valid,
+                                         **self.scorer_params)
                 run_scores = [run_scores] if model.cardinality > 2 else \
                     list(run_scores)
 
@@ -637,9 +773,10 @@ class RandomSearch(GridSearch):
 
     :param seed: A seed for the GridSearch instance
     """
+
     def __init__(self, model_class, parameter_dict, X_train, Y_train=None, n=10,
-        model_class_params={}, model_hyperparams={}, seed=123, 
-        save_dir='checkpoints', manual_param_grid=None):
+                 model_class_params={}, model_hyperparams={}, seed=123,
+                 save_dir='checkpoints', manual_param_grid=None):
         """Search a random sample of size n from a parameter grid"""
         self.rand_state = np.random.RandomState()
         self.rand_state.seed(seed)
@@ -647,8 +784,8 @@ class RandomSearch(GridSearch):
         self.seed = seed
         self.manual_param_grid = manual_param_grid
         super(RandomSearch, self).__init__(model_class, parameter_dict, X_train,
-            Y_train=Y_train, model_class_params=model_class_params,
-            model_hyperparams=model_hyperparams, save_dir=save_dir)
+                                           Y_train=Y_train, model_class_params=model_class_params,
+                                           model_hyperparams=model_hyperparams, save_dir=save_dir)
 
     def search_space(self):
 
@@ -743,7 +880,7 @@ def LF_accuracies(L, labels):
     Given an N x M matrix where L_{i,j} is the label given by the jth LF to the ith candidate, and labels {-1,1}
     Return the accuracy of each LF w.r.t. these labels
     """
-    return np.ravel(0.5*(L.T.dot(labels) / sparse_abs(L).sum(axis=0) + 1))
+    return np.ravel(0.5 * (L.T.dot(labels) / sparse_abs(L).sum(axis=0) + 1))
 
 
 def training_set_summary_stats(L, return_vals=True, verbose=False):
@@ -757,9 +894,9 @@ def training_set_summary_stats(L, return_vals=True, verbose=False):
         print("=" * 60)
         print("LF Summary Statistics: %s LFs applied to %s candidates" % (M, N))
         print("-" * 60)
-        print("Coverage (candidates w/ > 0 labels):\t\t%0.2f%%" % (coverage*100,))
-        print("Overlap (candidates w/ > 1 labels):\t\t%0.2f%%" % (overlap*100,))
-        print("Conflict (candidates w/ conflicting labels):\t%0.2f%%" % (conflict*100,))
+        print("Coverage (candidates w/ > 0 labels):\t\t%0.2f%%" % (coverage * 100,))
+        print("Overlap (candidates w/ > 1 labels):\t\t%0.2f%%" % (overlap * 100,))
+        print("Conflict (candidates w/ conflicting labels):\t%0.2f%%" % (conflict * 100,))
         print("=" * 60)
     if return_vals:
         return coverage, overlap, conflict
