@@ -496,7 +496,7 @@ class GenerativeModel(Classifier):
             if dep_type in dep_name_map:
                 dep_mat = getattr(self, dep_name_map[dep_type])
             else:
-                raise ValueError("Unrecognized dependency type: " + unicode(dep_type))
+                raise ValueError("Unrecognized dependency type: " + dep_type)
 
             dep_mat[lf1, lf2] = 1
 

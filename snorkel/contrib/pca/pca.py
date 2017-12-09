@@ -122,9 +122,9 @@ class PCA(TFNoiseAwareModel):
                 context_seqs.append((sent_seq, m1_seq, left_seq, right_seq,
                                      True, dist_sent, dm1, dleft_seq, dright_seq))
 
-        print "context lengths:"
+        print("context lengths:")
         for i in dist:
-            print i, np.mean(dist[i]), np.max(dist[i])
+            print(i, np.mean(dist[i]), np.max(dist[i]))
 
         return context_seqs
 

@@ -391,7 +391,7 @@ def print_scores_from_counts(counts, title='Scores'):
 
 
 def print_scores(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None, title='Scores'):
-    if nfp_ov and nfn_ov:
+    if nfp_ov or nfn_ov:
         print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov=nfp_ov, nfn_ov=nfn_ov, title='Scores')
         return
     prec, rec, f1 = binary_scores_from_counts(ntp, nfp, ntn, nfn)
@@ -415,9 +415,9 @@ def print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov, title='Sco
         = binary_scores_from_counts(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov)
     pos_acc = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
     neg_acc = ntn / float(ntn + nfp) if ntn + nfp > 0 else 0.0
-    print("=====================================================")
+    print("======================================================")
     print(title)
-    print("=====================================================")
+    print("======================================================")
     print("Pos. class accuracy:                            {:.3}".format(pos_acc))
     print("Neg. class accuracy:                            {:.3}".format(neg_acc))
     print("Precision                                       {:.3}".format(prec))
@@ -429,10 +429,10 @@ def print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov, title='Sco
     print("Half overl. Precision                           {:.3}".format(prec))
     print("Half overl. Recall                              {:.3}".format(rec))
     print("Half overl. F1                                  {:.3}".format(f1))
-    print("------------------------------------------------------")
+    print("-------------------------------------------------------")
     print("TP: {} | FP: {} | TN: {} | FN: {} | FP OV: {} | FN OV: {}"
           .format(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov))
-    print("======================================================\n")
+    print("=======================================================\n")
 
 
 ############################################################
