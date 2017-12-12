@@ -43,7 +43,7 @@ class CharRNN(nn.Module):
             """
             char_squish = F.tanh(self.attn_linear_w_1(output_char))
             char_attn = self.attn_linear_w_2(char_squish)
-            char_attn.data.masked_fill_(x_mask.data,  -1e12)
+            char_attn.data.masked_fill_(x_mask.data.unsqueeze(2),  -1e12)
             char_attn_norm = F.softmax(char_attn.squeeze(2))
             output = torch.bmm(output_char.transpose(1, 2), char_attn_norm.unsqueeze(2)).squeeze(2)
         else:
@@ -111,7 +111,7 @@ class WordRNN(nn.Module):
             """
             word_squish = F.tanh(self.attn_linear_w_1(output_word))
             word_attn = self.attn_linear_w_2(word_squish)
-            word_attn.data.masked_fill_(x_mask.data, -1e12)
+            word_attn.data.masked_fill_(x_mask.data.unsqueeze(2), -1e12)
             word_attn_norm = F.softmax(word_attn.squeeze(2))
             word_attn_vectors = torch.bmm(output_word.transpose(1, 2), word_attn_norm.unsqueeze(2)).squeeze(2)
             ouptut = self.linear(word_attn_vectors)

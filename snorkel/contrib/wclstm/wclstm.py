@@ -1,20 +1,18 @@
 import os
 import warnings
-
-import torch
-import torch.nn as nn
-import torch.utils.data as data_utils
-from torch.autograd import Variable
-
-from snorkel.learning.disc_learning import TFNoiseAwareModel
-from snorkel.learning.utils import reshape_marginals, LabelBalancer
-from snorkel.contrib.wclstm.utils import *
-from snorkel.contrib.wclstm.layers import *
-from six.moves.cPickle import dump, load
 from time import time
 
+import torch.utils.data as data_utils
+from six.moves.cPickle import dump, load
 
-class WCLSTM(TFNoiseAwareModel):
+from snorkel.learning.classifier import Classifier
+from snorkel.contrib.wclstm.layers import *
+from snorkel.contrib.wclstm.utils import *
+# from snorkel.learning.disc_learning import TFNoiseAwareModel
+from snorkel.learning.utils import reshape_marginals, LabelBalancer
+
+
+class WCLSTM(Classifier):
     name = 'WCLSTM'
     representation = True
     char_marker = ['<', '>']
@@ -25,6 +23,12 @@ class WCLSTM(TFNoiseAwareModel):
 
     """Hierarchy Bi-LSTM for relation extraction"""
 
+    def __init__(self, n_threads=None, seed=123, **kwargs):
+        self.n_threads = n_threads
+        self.seed = seed
+        self.rand_state = np.random.RandomState()
+        super(WCLSTM, self).__init__(**kwargs)
+
     def _preprocess_data(self, candidates, extend=False):
         """Convert candidate sentences to lookup sequences
 
@@ -34,12 +38,14 @@ class WCLSTM(TFNoiseAwareModel):
         if not hasattr(self, 'word_dict'):
             self.word_dict = SymbolTable()
             # Add paddings for words
-            map(self.word_dict.get, ['~~[[1', '1]]~~', '~~[[2', '2]]~~'])
+            for padding in ['~~[[1', '1]]~~', '~~[[2', '2]]~~']:
+                self.word_dict.get(padding)
 
         if not hasattr(self, 'char_dict'):
             self.char_dict = SymbolTable()
             # Add paddings for chars
-            map(self.char_dict.get, self.char_marker)
+            for marker in self.char_marker:
+                self.char_dict.get(marker)
 
         word_seq_data = []
         char_seq_data = []
@@ -56,7 +62,7 @@ class WCLSTM(TFNoiseAwareModel):
             s = mark_sentence(candidate_to_tokens(candidate), args)
             # Either extend word table or retrieve from it
             f = self.word_dict.get if extend else self.word_dict.lookup
-            word_seq_data.append(np.array(map(f, s)))
+            word_seq_data.append(np.array(list(map(f, s))))
 
             # Either extend char table or retrieve from it
             g = self.char_dict.get if extend else self.char_dict.lookup
@@ -66,7 +72,7 @@ class WCLSTM(TFNoiseAwareModel):
                 word_char_seq = []
                 for i in range(len(word) - self.char_gram + 1):
                     word_char_seq.append(word[i:i + self.char_gram])
-                char_seq.append(np.array(map(g, word_char_seq)))
+                char_seq.append(np.array(list(map(g, word_char_seq))))
             char_seq_data.append(char_seq)
         return np.array(word_seq_data), np.array(char_seq_data)
 
@@ -86,20 +92,26 @@ class WCLSTM(TFNoiseAwareModel):
             self.word_dict_all = {}
 
             # Add paddings for words
-            map(self.word_dict.get, ['~~[[1', '1]]~~', '~~[[2', '2]]~~'])
+            for padding in ['~~[[1', '1]]~~', '~~[[2', '2]]~~']:
+                self.word_dict.get(padding)
 
         if char:
             self.char_dict = SymbolTable()
             self.char_dict_all = {}
 
             # Add paddings for chars
-            map(self.char_dict_all.get, self.char_marker)
+            for marker in self.char_marker:
+                self.char_dict_all.get(marker)
 
         # Initialize training vocabulary
         for candidate in splits["train"]:
             words = candidate_to_tokens(candidate)
-            if word: map(self.word_dict.get, words)
-            if char: map(self.char_dict.get, list(' '.join(words)))
+            if word:
+                for w in words:
+                    self.word_dict.get(w)
+            if char:
+                for c in list(' '.join(words)):
+                    self.char_dict.get(c)
 
         # Initialize pre-trained vocabulary
         for candset in splits["test"]:
@@ -113,46 +125,15 @@ class WCLSTM(TFNoiseAwareModel):
         print("|Train Vocab|    = {}".format(self.word_dict.s))
         print("|Dev/Test Vocab| = {}".format(len(self.word_dict_all)))
 
-    def load_dict(self):
+    def load_char_dict(self):
         """Load dict from user input embeddings"""
-        if not hasattr(self, 'word_dict'):
-            self.word_dict = SymbolTable()
-
         if not hasattr(self, 'char_dict'):
             self.char_dict = SymbolTable()
 
-        # Add paddings
-        map(self.word_dict.get, ['~~[[1', '1]]~~', '~~[[2', '2]]~~'])
+            # Add paddings for chars
+        for marker in  self.char_marker:
+            self.char_dict.get(marker)
 
-        # Add paddings for chars
-        map(self.char_dict.get, self.char_marker)
-
-        # Word embeddings
-        f = open(self.word_emb_path, 'r')
-        fmt = "fastText" if self.word_emb_path.split(".")[-1] == "vec" else "txt"
-
-        n, N = 0.0, 0.0
-
-        l = list()
-        for i, _ in enumerate(f):
-            if fmt == "fastText" and i == 0: continue
-            line = _.strip().split(' ')
-            assert (len(line) == self.word_emb_dim + 1), "Word embedding dimension doesn't match!"
-            word = line[0]
-            # Replace placeholder to original word defined by user.
-            for key in self.replace.keys():
-                word = word.replace(key, self.replace[key])
-            if hasattr(self, 'word_dict_all') and word in self.word_dict_all:
-                l.append(word)
-                n += 1
-
-        map(self.word_dict.get, l)
-        if hasattr(self, 'word_dict_all'):
-            N = len(self.word_dict_all)
-            print("|Dev/Test Vocab|                   = {}".format(N))
-            print("|Dev/Test Vocab ^ Pretrained Embs| = {} {:2.2f}%".format(n, n / float(N) * 100))
-            print("|Vocab|                            = {}".format(self.word_dict.s))
-        f.close()
 
         # Char embeddings
         f = open(self.char_emb_path, 'r')
@@ -168,33 +149,53 @@ class WCLSTM(TFNoiseAwareModel):
             if hasattr(self, 'char_dict_all') and char in self.char_dict_all:
                 l.append(char)
 
-        map(self.char_dict.get, l)
+        for char in l:
+            self.char_dict.get(char)
         f.close()
 
-    def load_embeddings(self):
-        """Load pre-trained embeddings from user input"""
-        self.load_dict()
-        # Random initial word embeddings
-        self.word_emb = np.random.uniform(-0.1, 0.1, (self.word_dict.s, self.word_emb_dim)).astype(np.float)
+    def load_word_dict(self):
+        """Load dict from user input embeddings"""
+        if not hasattr(self, 'word_dict'):
+            self.word_dict = SymbolTable()
 
-        # Random initial char embeddings
-        self.char_emb = np.random.uniform(-0.1, 0.1, (self.char_dict.s, self.char_emb_dim)).astype(np.float)
+        # Add paddings
+        for padding in ['~~[[1', '1]]~~', '~~[[2', '2]]~~']:
+            self.word_dict.get(padding)
 
         # Word embeddings
         f = open(self.word_emb_path, 'r')
         fmt = "fastText" if self.word_emb_path.split(".")[-1] == "vec" else "txt"
 
-        for i, line in enumerate(f):
-            if fmt == "fastText" and i == 0:
-                continue
-            line = line.strip().split(' ')
+        n, N = 0.0, 0.0
+
+        l = list()
+        for i, _ in enumerate(f):
+            if fmt == "fastText" and i == 0: continue
+            line = _.rstrip().split(' ')
             assert (len(line) == self.word_emb_dim + 1), "Word embedding dimension doesn't match!"
+            word = line[0]
+            # Replace placeholder to original word defined by user.
             for key in self.replace.keys():
-                line[0] = line[0].replace(key, self.replace[key])
-            if self.word_dict.lookup(line[0]) != self.unknown_symbol:
-                self.word_emb[self.word_dict.lookup_strict(line[0])] = np.asarray(
-                    [float(_) for _ in line[-self.word_emb_dim:]])
+                word = word.replace(key, self.replace[key])
+            if hasattr(self, 'word_dict_all') and word in self.word_dict_all:
+                l.append(word)
+                n += 1
+
+        for w in l:
+            self.word_dict.get(w)
+        if hasattr(self, 'word_dict_all'):
+            N = len(self.word_dict_all)
+            print("|Dev/Test Vocab|                   = {}".format(N))
+            print("|Dev/Test Vocab ^ Pretrained Embs| = {} {:2.2f}%".format(n, n / float(N) * 100))
+            print("|Vocab|                            = {}".format(self.word_dict.s))
         f.close()
+
+    def load_char_embeddings(self):
+        """Load pre-trained embeddings from user input"""
+        self.load_char_dict()
+
+        # Random initial char embeddings
+        self.char_emb = np.random.uniform(-0.1, 0.1, (self.char_dict.s, self.char_emb_dim)).astype(np.float)
 
         # Char embeddings
         f = open(self.char_emb_path, 'r')
@@ -207,6 +208,28 @@ class WCLSTM(TFNoiseAwareModel):
             if self.char_dict.lookup(line[0]) != self.unknown_symbol:
                 self.char_emb[self.char_dict.lookup_strict(line[0])] = np.asarray(
                     [float(_) for _ in line[-self.char_emb_dim:]])
+        f.close()
+
+    def load_word_embeddings(self):
+        """Load pre-trained embeddings from user input"""
+        self.load_word_dict()
+        # Random initial word embeddings
+        self.word_emb = np.random.uniform(-0.1, 0.1, (self.word_dict.s, self.word_emb_dim)).astype(np.float)
+
+        # Word embeddings
+        f = open(self.word_emb_path, 'r')
+        fmt = "fastText" if self.word_emb_path.split(".")[-1] == "vec" else "txt"
+
+        for i, line in enumerate(f):
+            if fmt == "fastText" and i == 0:
+                continue
+            line = line.rstrip().split(' ')
+            assert (len(line) == self.word_emb_dim + 1), "Word embedding dimension doesn't match!"
+            for key in self.replace.keys():
+                line[0] = line[0].replace(key, self.replace[key])
+            if self.word_dict.lookup(line[0]) != self.unknown_symbol:
+                self.word_emb[self.word_dict.lookup_strict(line[0])] = np.asarray(
+                    [float(_) for _ in line[-self.word_emb_dim:]])
         f.close()
 
     def train_model(self, w_model, c_model, optimizer, criterion, x_w, x_w_mask, x_c, x_c_mask, y):
@@ -236,9 +259,9 @@ class WCLSTM(TFNoiseAwareModel):
         y_pred = w_model(x_w, x_w_mask, s, w_state_word)
 
         if self.host_device in self.gpu:
-            loss = criterion(y_pred.cuda(), y)
+            loss = criterion(y_pred.cuda().squeeze(1), y)
         else:
-            loss = criterion(y_pred, y)
+            loss = criterion(y_pred.squeeze(1), y)
 
         loss.backward()
         optimizer.step()
@@ -252,7 +275,8 @@ class WCLSTM(TFNoiseAwareModel):
             self.create_dict(kwargs['init_pretrained'], word=True, char=True)
 
         # Set use pre-trained embedding or not
-        self.load_emb = kwargs.get('load_emb', False)
+        self.load_word_emb = kwargs.get('load_word_emb', False)
+        self.load_char_emb = kwargs.get('load_char_emb', False)
 
         # Set word embedding dimension
         self.word_emb_dim = kwargs.get('word_emb_dim', 300)
@@ -307,27 +331,29 @@ class WCLSTM(TFNoiseAwareModel):
         self.patience = kwargs.get('patience', 100)
 
         print("===============================================")
-        print("Number of learning epochs:     ", self.n_epochs)
-        print("Learning rate:                 ", self.lr)
-        print("Use attention:                 ", self.attention)
-        print("LSTM hidden dimension:         ", self.lstm_hidden_dim)
-        print("dropout:                       ", self.dropout)
-        print("Batch size:                    ", self.batch_size)
-        print("Rebalance:                     ", self.rebalance)
-        print("Checkpoint Patience:           ", self.patience)
-        print("Char gram:                     ", self.char_gram)
-        print("Max word length:               ", self.max_word_length)
-        print("Max sentence length:           ", self.max_sentence_length)
-        print("Load pre-trained embedding:    ", self.load_emb)
-        print("Host device:                   ", self.host_device)
-        print("Word embedding size:           ", self.word_emb_dim)
-        print("Char embedding size:           ", self.char_emb_dim)
-        print("Word embedding:                ", self.word_emb_path)
-        print("Char embedding:                ", self.char_emb_path)
+        print(f"Number of learning epochs:     {self.n_epochs}")
+        print(f"Learning rate:                 {self.lr}")
+        print(f"Use attention:                 {self.attention}")
+        print(f"LSTM hidden dimension:         {self.lstm_hidden_dim}")
+        print(f"dropout:                       {self.dropout}")
+        print(f"Batch size:                    {self.batch_size}")
+        print(f"Rebalance:                     {self.rebalance}")
+        print(f"Checkpoint Patience:           {self.patience}")
+        print(f"Char gram:                     {self.char_gram}")
+        print(f"Max word length:               {self.max_word_length}")
+        print(f"Max sentence length:           {self.max_sentence_length}")
+        print(f"Load pre-trained word emb.:    {self.load_word_emb}")
+        print(f"Load pre-trained char emb.:    {self.load_char_emb}")
+        print(f"Host device:                   {self.host_device}")
+        print(f"Word embedding size:           {self.word_emb_dim}")
+        print(f"Char embedding size:           {self.char_emb_dim}")
+        print(f"Word embedding:                {self.word_emb_path}")
+        print(f"Char embedding:                {self.char_emb_path}")
         print("===============================================")
 
-        if self.load_emb:
+        if self.load_word_emb:
             assert self.word_emb_path is not None
+        if self.load_char_emb:
             assert self.char_emb_path is not None
 
         if "init_pretrained" in kwargs:
@@ -386,9 +412,12 @@ class WCLSTM(TFNoiseAwareModel):
 
         X_w_train, X_c_train = self._preprocess_data(X_train, extend=True)
 
-        if self.load_emb:
+        if self.load_char_emb:
+            self.load_char_embeddings()
+
+        if self.load_word_emb:
             # load embeddings from file
-            self.load_embeddings()
+            self.load_word_embeddings()
 
             print("Done loading pre-trained embeddings...")
 
@@ -407,7 +436,7 @@ class WCLSTM(TFNoiseAwareModel):
                                   dropout=self.dropout,
                                   bidirectional=self.bidirectional,
                                   use_cuda=self.host_device in self.gpu)
-        if self.load_emb:
+        if self.load_char_emb:
             # Set pre-trained embedding weights
             self.char_model.lookup.weight.data.copy_(torch.from_numpy(self.char_emb))
 
@@ -422,7 +451,7 @@ class WCLSTM(TFNoiseAwareModel):
                                   bidirectional=self.bidirectional,
                                   use_cuda=self.host_device in self.gpu)
 
-        if self.load_emb:
+        if self.load_word_emb:
             # Set pre-trained embedding weights
             self.word_model.lookup.weight.data.copy_(torch.from_numpy(self.word_emb))
 
@@ -445,7 +474,8 @@ class WCLSTM(TFNoiseAwareModel):
                 x_w, x_w_mask, x_c, x_c_mask = pad_batch(X_w_train[x.numpy()], X_c_train[x.numpy()],
                                                          self.max_sentence_length, self.max_word_length)
                 y = Variable(y.float(), requires_grad=False)
-                cost += self.train_model(self.word_model, self.char_model, optimizer, loss, x_w, x_w_mask, x_c, x_c_mask, y)
+                cost += self.train_model(self.word_model, self.char_model, optimizer, loss, x_w, x_w_mask, x_c,
+                                         x_c_mask, y)
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
                 if X_dev is not None:
@@ -460,7 +490,8 @@ class WCLSTM(TFNoiseAwareModel):
                     self.save(save_dir=save_dir, only_param=True)
                     last_epoch_opt = idx
 
-                if last_epoch_opt is not None and (idx - last_epoch_opt > self.patience) and (dev_ckpt and idx > dev_ckpt_delay * self.n_epochs):
+                if last_epoch_opt is not None and (idx - last_epoch_opt > self.patience) and (
+                        dev_ckpt and idx > dev_ckpt_delay * self.n_epochs):
                     print("[{}] No model improvement after {} epochs, halting".format(self.name, idx - last_epoch_opt))
                     break
 
@@ -514,6 +545,28 @@ class WCLSTM(TFNoiseAwareModel):
                 y = np.append(y, sigmoid(y_pred).data.numpy())
         return y
 
+    def marginals(self, X, batch_size=None):
+        """
+        Compute the marginals for the given candidates X.
+        Split into batches to avoid OOM errors, then call _marginals_batch;
+        defaults to no batching.
+        """
+        if batch_size is None:
+            return self._marginals_batch(X)
+        else:
+            N = len(X) if self.representation else X.shape[0]
+            n_batches = int(np.floor(N / batch_size))
+
+            # Iterate over batches
+            batch_marginals = []
+            for b in range(0, N, batch_size):
+                batch = self._marginals_batch(X[b:b+batch_size])
+                # Note: Make sure a list is returned!
+                if min(b+batch_size, N) - b == 1:
+                    batch = np.array([batch])
+                batch_marginals.append(batch)
+            return np.concatenate(batch_marginals)
+
     def save(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False):
         """Save current model"""
         model_name = model_name or self.name
@@ -528,15 +581,22 @@ class WCLSTM(TFNoiseAwareModel):
             with open(os.path.join(model_dir, "model_kwargs.pkl"), 'wb') as f:
                 dump(self.model_kwargs, f)
 
-            if self.load_emb:
+            if self.load_char_emb:
                 # Save model dicts needed to rebuild model
-                with open(os.path.join(model_dir, "model_dicts.pkl"), 'wb') as f:
-                    dump({'char_dict': self.char_dict, 'word_dict': self.word_dict, 'char_emb': self.char_emb,
-                          'word_emb': self.word_emb}, f)
+                with open(os.path.join(model_dir, "char_model_dicts.pkl"), 'wb') as f:
+                    dump({'char_dict': self.char_dict, 'char_emb': self.char_emb}, f)
             else:
                 # Save model dicts needed to rebuild model
-                with open(os.path.join(model_dir, "model_dicts.pkl"), 'wb') as f:
-                    dump({'char_dict': self.char_dict, 'word_dict': self.word_dict}, f)
+                with open(os.path.join(model_dir, "char_model_dicts.pkl"), 'wb') as f:
+                    dump({'char_dict': self.char_dict}, f)
+
+            if self.load_word_emb:
+                with open(os.path.join(model_dir, "word_model_dicts.pkl"), 'wb') as f:
+                    dump({'word_dict': self.word_dict, 'word_emb': self.word_emb}, f)
+            else:
+                # Save model dicts needed to rebuild model
+                with open(os.path.join(model_dir, "word_model_dicts.pkl"), 'wb') as f:
+                    dump({'word_dict': self.word_dict}, f)
 
         torch.save(self.word_model, os.path.join(model_dir, model_name + '_word_model'))
         torch.save(self.char_model, os.path.join(model_dir, model_name + '_char_model'))
@@ -555,19 +615,26 @@ class WCLSTM(TFNoiseAwareModel):
                 model_kwargs = load(f)
                 self._init_kwargs(**model_kwargs)
 
-            if self.load_emb:
+            if self.load_char_emb:
                 # Save model dicts needed to rebuild model
-                with open(os.path.join(model_dir, "model_dicts.pkl"), 'rb') as f:
+                with open(os.path.join(model_dir, "char_model_dicts.pkl"), 'rb') as f:
                     d = load(f)
                     self.char_dict = d['char_dict']
-                    self.word_dict = d['word_dict']
                     self.char_emb = d['char_emb']
+            else:
+                # Save model dicts needed to rebuild model
+                with open(os.path.join(model_dir, "char_model_dicts.pkl"), 'rb') as f:
+                    d = load(f)
+                    self.char_dict = d['char_dict']
+            if self.load_word_emb:
+                with open(os.path.join(model_dir, "word_model_dicts.pkl"), 'rb') as f:
+                    d = load(f)
+                    self.word_dict = d['word_dict']
                     self.word_emb = d['word_emb']
             else:
                 # Save model dicts needed to rebuild model
-                with open(os.path.join(model_dir, "model_dicts.pkl"), 'rb') as f:
+                with open(os.path.join(model_dir, "word_model_dicts.pkl"), 'rb') as f:
                     d = load(f)
-                    self.char_dict = d['char_dict']
                     self.word_dict = d['word_dict']
 
         self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))

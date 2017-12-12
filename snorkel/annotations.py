@@ -316,7 +316,7 @@ class AnnotatorUDF(UDF):
 
 
 def load_matrix(matrix_class, annotation_key_class, annotation_class, session,
-    split=0, cids_query=None, key_group=0, key_names=None, zero_one=False,
+    split=0, cids_query=None, key_group=0, key_names=None, zero_one=False, limit=None,
     load_as_array=False):
     """
     Returns the annotations corresponding to a split of candidates with N members
@@ -324,6 +324,8 @@ def load_matrix(matrix_class, annotation_key_class, annotation_class, session,
     """
     cid_query = cids_query or session.query(Candidate.id)\
                                      .filter(Candidate.split == split)
+    if limit is not None:
+        cid_query = cid_query.limit(limit)
     cid_query = cid_query.order_by(Candidate.id)
 
     keys_query = session.query(annotation_key_class.id)

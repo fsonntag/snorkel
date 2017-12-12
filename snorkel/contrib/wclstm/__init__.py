@@ -1,1 +1,1 @@
-from wclstm import WCLSTM
+from .wclstm import WCLSTM

@@ -2,7 +2,7 @@
 Subpackage for Snorkel machine learning modules.
 """
 from .utils import *
-from .disc_models.rnn import reRNN, TagRNN, TextRNN
+# from .disc_models.rnn import reRNN, TagRNN, TextRNN
 from .disc_models.logistic_regression import (
 	LogisticRegression, SparseLogisticRegression
 )
