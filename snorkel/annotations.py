@@ -506,7 +506,7 @@ def save_marginals(session, X, marginals, training=True):
     print("Saved %s marginals" % len(marginals))
 
 
-def load_marginals(session, X=None, split=0, cids_query=None, training=True):
+def load_marginals(session, X=None, split=0, cids_query=None, training=True, marginal_limit=None):
     """Load the marginal probs. for a given split of Candidates"""
     # For candidate ids subquery
     cids_query = cids_query or session.query(Candidate.id) \
@@ -516,11 +516,13 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True):
     cids_sub_query = cids_query.subquery('cids')
 
     # Load marginal tuples from db
-    marginal_tuples = session.query(Marginal.candidate_id, Marginal.value, 
+    marginal_tuples_query = session.query(Marginal.candidate_id, Marginal.value,
         Marginal.probability) \
         .filter(Marginal.candidate_id == cids_sub_query.c.id) \
-        .filter(Marginal.training == training) \
-        .all()
+        .filter(Marginal.training == training)
+    if marginal_limit:
+        marginal_tuples_query = marginal_tuples_query.limit(marginal_limit)
+    marginal_tuples = marginal_tuples_query.all()
 
     # If an AnnotationMatrix or list of candidates X is provided, we make sure
     # that the returned marginals are collated with X.
