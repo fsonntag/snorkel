@@ -400,7 +400,7 @@ class BratAnnotator(object):
         """
         cwd = os.getcwd()
         os.chdir("{}/{}/".format(self.path, self.brat_root))
-        cmd = ["python", "standalone.py", "{}".format(self.port)]
+        cmd = ["python2", "standalone.py", "{}".format(self.port)]
         self.process_group = subprocess.Popen(cmd, cwd=os.getcwd(), env=os.environ, shell=False)
         os.chdir(cwd)
         url = "http://{}:{}".format(self.address, self.port)
