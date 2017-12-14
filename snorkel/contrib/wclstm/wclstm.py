@@ -359,7 +359,7 @@ class WCLSTM(Classifier):
         if "init_pretrained" in kwargs:
             del self.model_kwargs["init_pretrained"]
 
-    def train(self, X_train, Y_train, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
+    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
               dev_ckpt_delay=0.75, save_dir='checkpoints', **kwargs):
 
         """
@@ -480,9 +480,11 @@ class WCLSTM(Classifier):
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
                 if X_dev is not None:
                     scores = self.score(X_dev, Y_dev, batch_size=self.batch_size)
+
                     score = scores if self.cardinality > 2 else scores[-1]
                     score_label = "Acc." if self.cardinality > 2 else "F1"
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * score)
+                    self.error_analysis(session, X_dev, Y_dev)
                 print(msg)
 
                 if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and score > dev_score_opt:

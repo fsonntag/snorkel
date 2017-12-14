@@ -76,7 +76,7 @@ class Classifier(object):
             p = tp / float(pred_pos) if pred_pos > 0 else 0.0
             pos = Y_test[Y_test == 1].sum()
             r = tp / float(pos) if pos > 0 else 0.0
-
+            print(f'total examples: {len(Y_test)}; tp: {tp}; pred_pos: {pred_pos}; pos: {pos}; p: {p}; r: {r}')
             # Compute general F-beta score
             if p + r > 0:
                 f_beta = (1 + beta**2) * ((p * r) / (((beta**2) * p) + r))
