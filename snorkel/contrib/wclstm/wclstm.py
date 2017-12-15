@@ -5,9 +5,9 @@ from time import time
 import torch.utils.data as data_utils
 from six.moves.cPickle import dump, load
 
-from snorkel.learning.classifier import Classifier
 from snorkel.contrib.wclstm.layers import *
 from snorkel.contrib.wclstm.utils import *
+from snorkel.learning.classifier import Classifier
 # from snorkel.learning.disc_learning import TFNoiseAwareModel
 from snorkel.learning.utils import reshape_marginals, LabelBalancer
 
@@ -131,9 +131,8 @@ class WCLSTM(Classifier):
             self.char_dict = SymbolTable()
 
             # Add paddings for chars
-        for marker in  self.char_marker:
+        for marker in self.char_marker:
             self.char_dict.get(marker)
-
 
         # Char embeddings
         f = open(self.char_emb_path, 'r')
@@ -259,7 +258,7 @@ class WCLSTM(Classifier):
         y_pred = w_model(x_w, x_w_mask, s, w_state_word)
 
         if self.host_device in self.gpu:
-            loss = criterion(y_pred.cuda().squeeze(1), y)
+            loss = criterion(y_pred.cuda(), y)
         else:
             loss = criterion(y_pred.squeeze(1), y)
 
@@ -427,7 +426,7 @@ class WCLSTM(Classifier):
         data_set = data_utils.TensorDataset(X, Y_train)
         data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
 
-        n_classes = 1 if self.cardinality == 2 else None
+        n_classes = 1 if self.cardinality == 2 else self.cardinality
 
         self.char_model = CharRNN(batch_size=self.batch_size, num_tokens=self.char_dict.s,
                                   embed_size=self.char_emb_dim,
@@ -476,6 +475,12 @@ class WCLSTM(Classifier):
                 y = Variable(y.float(), requires_grad=False)
                 cost += self.train_model(self.word_model, self.char_model, optimizer, loss, x_w, x_w_mask, x_c,
                                          x_c_mask, y)
+
+            if cardinality == 2:
+                Y_train[Y_train > 0.5] = 1
+                Y_train[Y_train <= 0.5] = 0
+                train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
+                print(f"train scores: {train_scores}")
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
                 if X_dev is not None:
@@ -512,8 +517,11 @@ class WCLSTM(Classifier):
 
         X_w, X_c = self._preprocess_data(X, extend=False)
         sigmoid = nn.Sigmoid()
+        softmax = nn.Softmax()
 
         y = np.array([])
+        if self.cardinality > 2:
+            y = y.reshape(0, self.cardinality)
 
         x = torch.from_numpy(np.arange(len(X_w)))
         data_set = data_utils.TensorDataset(x, x)
@@ -542,12 +550,18 @@ class WCLSTM(Classifier):
             s = s.transpose(0, 1)
             y_pred = self.word_model(x_w, x_w_mask, s, w_state_word)
             if self.host_device in self.gpu:
-                y = np.append(y, sigmoid(y_pred).data.cpu().numpy())
+                if self.cardinality > 2:
+                    y = np.vstack((y, softmax(y_pred).data.cpu().numpy()))
+                else:
+                    y = np.append(y, sigmoid(y_pred).data.cpu().numpy())
             else:
-                y = np.append(y, sigmoid(y_pred).data.numpy())
+                if self.cardinality > 2:
+                    y = np.vstack((y, softmax(y_pred).data.numpy()))
+                else:
+                    y = np.append(y, sigmoid(y_pred).data.numpy())
         return y
 
-    def marginals(self, X, batch_size=None):
+    def marginals(self, X, batch_size=None, **kwargs):
         """
         Compute the marginals for the given candidates X.
         Split into batches to avoid OOM errors, then call _marginals_batch;
@@ -562,9 +576,9 @@ class WCLSTM(Classifier):
             # Iterate over batches
             batch_marginals = []
             for b in range(0, N, batch_size):
-                batch = self._marginals_batch(X[b:b+batch_size])
+                batch = self._marginals_batch(X[b:b + batch_size])
                 # Note: Make sure a list is returned!
-                if min(b+batch_size, N) - b == 1:
+                if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
             return np.concatenate(batch_marginals)
