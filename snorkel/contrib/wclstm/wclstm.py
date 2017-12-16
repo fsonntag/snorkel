@@ -456,8 +456,6 @@ class WCLSTM(Classifier):
                                   bidirectional=self.bidirectional,
                                   use_cuda=self.host_device in self.gpu)
 
-        self.word_model = nn.DataParallel(self.word_model, device_ids=[1, 2], dim=1)
-
         if self.load_word_emb:
             # Set pre-trained embedding weights
             self.word_model.lookup.weight.data.copy_(torch.from_numpy(self.word_emb))
