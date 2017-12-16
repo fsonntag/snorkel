@@ -27,7 +27,8 @@ class Classifier(object):
         based on predicted marginal probabilities.
         """
         if self.cardinality > 2:
-            return self.marginals(X, batch_size=batch_size).argmax(axis=1) + 1
+            # return self.marginals(X, batch_size=batch_size).argmax(axis=1) + 1
+            return self.marginals(X, batch_size=batch_size).argmax(axis=1)
         else:
             return np.array([1 if p > b else -1 if p < b else 0 
                 for p in self.marginals(X, batch_size=batch_size)])
