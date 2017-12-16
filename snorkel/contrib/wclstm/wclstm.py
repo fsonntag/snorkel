@@ -489,7 +489,7 @@ class WCLSTM(Classifier):
                 Y_train[Y_train > 0.5] = 1
                 Y_train[Y_train <= 0.5] = 0
                 train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
-                print(f"Train scores: {train_scores}")
+                print(f"Train F1: {train_scores[-1]}")
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
                 if X_dev is not None:
