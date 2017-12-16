@@ -1,3 +1,9 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+from builtins import *
+
 import numpy as np
 from pandas import DataFrame, Series
 import scipy.sparse as sparse
@@ -19,6 +25,7 @@ from .utils import (
     matrix_fn,
     matrix_tn
 )
+
 
 class csr_AnnotationMatrix(sparse.csr_matrix):
     """
@@ -366,8 +373,16 @@ def load_matrix(matrix_class, annotation_key_class, annotation_class, session,
     q = q.order_by(annotation_class.candidate_id)
 
     # Iteratively construct row index and output sparse matrix
-    for cid, kid, val in q.all():
-        if cid in cid_to_row and kid in kid_to_col:
+    # Cycles through the entire table to load the data.
+    # Perfornamce may slow down based on table size; however, negligible since 
+    # it takes 8min to go throuh 245M rows (pretty fast).
+    for res in session.execute(annot_select_query):
+        # NOTE: The order of return seems to be switched in Python 3???
+        # Either way, make sure the order is set here explicitly!
+        cid, kid, val = res.candidate_id, res.key_id, res.value
+
+        if (cid in cid_to_row) and (kid in kid_to_col):
+
             # Optionally restricts val range to {0,1}, mapping -1 -> 0
             if zero_one:
                 val = 1 if val == 1 else 0
@@ -375,7 +390,8 @@ def load_matrix(matrix_class, annotation_key_class, annotation_class, session,
 
     # Return as an AnnotationMatrix
     Xr = matrix_class(X, candidate_index=cid_to_row, row_index=row_to_cid,
-                        annotation_key_cls=annotation_key_class, key_index=kid_to_col, col_index=col_to_kid)
+            annotation_key_cls=annotation_key_class, key_index=kid_to_col, 
+            col_index=col_to_kid)
     return np.squeeze(Xr.toarray()) if load_as_array else Xr
 
 
