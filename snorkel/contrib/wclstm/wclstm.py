@@ -290,6 +290,12 @@ class WCLSTM(Classifier):
         # Set learning rate
         self.lr = kwargs.get('lr', 1e-3)
 
+        # Set weight decay
+        self.weight_decay = kwargs.get('weight_decay', 0.)
+
+        # Set shuffle batch data
+        self.shuffle = kwargs.get('shuffle', False)
+
         # Set use attention or not
         self.attention = kwargs.get('attention', True)
 
@@ -359,7 +365,7 @@ class WCLSTM(Classifier):
             del self.model_kwargs["init_pretrained"]
 
     def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
-              dev_ckpt_delay=0.75, save_dir='checkpoints', **kwargs):
+              dev_ckpt_delay=0.75, save_dir='checkpoints', print_train_scores=False, **kwargs):
 
         """
         Perform preprocessing of data, construct dataset-specific model, then
@@ -424,7 +430,7 @@ class WCLSTM(Classifier):
 
         X = torch.from_numpy(np.arange(len(X_w_train)))
         data_set = data_utils.TensorDataset(X, Y_train)
-        data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
+        data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=self.shuffle)
 
         n_classes = 1 if self.cardinality == 2 else self.cardinality
 
@@ -450,6 +456,8 @@ class WCLSTM(Classifier):
                                   bidirectional=self.bidirectional,
                                   use_cuda=self.host_device in self.gpu)
 
+        self.word_model = nn.DataParallel(self.word_model, device_ids=[1, 2], dim=1)
+
         if self.load_word_emb:
             # Set pre-trained embedding weights
             self.word_model.lookup.weight.data.copy_(torch.from_numpy(self.word_emb))
@@ -461,7 +469,8 @@ class WCLSTM(Classifier):
         n_examples = len(X_w_train)
 
         optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
-                                     lr=self.lr)
+                                     lr=self.lr, weight_decay=self.weight_decay)
+
         loss = nn.MultiLabelSoftMarginLoss(size_average=False)
 
         dev_score_opt = 0.0
@@ -476,11 +485,11 @@ class WCLSTM(Classifier):
                 cost += self.train_model(self.word_model, self.char_model, optimizer, loss, x_w, x_w_mask, x_c,
                                          x_c_mask, y)
 
-            if cardinality == 2:
+            if print_train_scores and cardinality == 2:
                 Y_train[Y_train > 0.5] = 1
                 Y_train[Y_train <= 0.5] = 0
                 train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
-                print(f"train scores: {train_scores}")
+                print(f"Train scores: {train_scores}")
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
                 if X_dev is not None:
