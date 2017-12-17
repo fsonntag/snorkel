@@ -1,10 +1,9 @@
-import math
 import numpy as np
-import scipy.sparse as sparse
-from multiprocessing import Process, Queue
-from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
-from snorkel.models import FeatureKey, GoldLabel, Sentence, Span, Candidate
-from snorkel.learning.utils import print_scores
+from sklearn.metrics import f1_score, precision_score, recall_score
+
+from snorkel.learning.utils import calculate_scores
+from snorkel.models import FeatureKey, Candidate
+
 
 def majority_vote(L):
     '''Majority vote'''
@@ -80,7 +79,7 @@ def score(session, lf, split, gold, unlabled_as_neg=False):
         elif label == 1 and gold[i, 0] == -1:
             fp += [c]
 
-    print_scores(len(tp), len(fp), len(tn), len(fn), title='LF Score')
+    calculate_scores(len(tp), len(fp), len(tn), len(fn), title='LF Score')
 
 
 def error_analysis(session, lf, split, gold, unlabled_as_neg=False):
@@ -101,7 +100,7 @@ def error_analysis(session, lf, split, gold, unlabled_as_neg=False):
         elif label == 1 and gold[i, 0] == -1:
             fp += [c]
 
-    print_scores(len(tp), len(fp), len(tn), len(fn), title='LF Score')
+    calculate_scores(len(tp), len(fp), len(tn), len(fn), title='LF Score')
     return tp, fp, tn, fn
 
 def print_top_k_features(session, model, F_matrix, top_k=25):

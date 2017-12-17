@@ -2,8 +2,8 @@ from sqlalchemy import Column, String, Integer, Float, ForeignKey, UniqueConstra
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import relationship, backref
 
+from snorkel.utils import camel_to_under
 from .meta import SnorkelBase
-from ..utils import camel_to_under
 
 
 class AnnotationKeyMixin(object):

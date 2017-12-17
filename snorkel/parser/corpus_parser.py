@@ -1,6 +1,6 @@
+from snorkel.models import Sentence, Candidate, Context
+from snorkel.udf import UDFRunner, UDF
 from .corenlp import StanfordCoreNLPServer
-from ..models import Candidate, Context, Sentence
-from ..udf import UDF, UDFRunner
 
 
 class CorpusParser(UDFRunner):

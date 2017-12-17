@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
 import json
+import os
 import signal
 import socket
 import string
+import sys
 import warnings
-
-from subprocess import Popen,PIPE
 from collections import defaultdict
+from subprocess import Popen, PIPE
 
+from snorkel.models import construct_stable_id
+from snorkel.utils import sort_X_on_Y
 from .parser import Parser, URLParserConnection
-from ..models import Candidate, Context, Document, Sentence, construct_stable_id
-from ..utils import sort_X_on_Y
 
 
 class StanfordCoreNLPServer(Parser):
@@ -219,6 +218,7 @@ class StanfordCoreNLPServer(Parser):
         # check for parsing error messages
         StanfordCoreNLPServer.validate_response(content)
 
+        blocks = []
         try:
             blocks = json.loads(content, strict=False)['sentences']
         except:

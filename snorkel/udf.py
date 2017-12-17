@@ -1,11 +1,12 @@
 from multiprocessing import Process, JoinableQueue
+
+from snorkel.models.meta import new_sessionmaker, snorkel_conn_string
+from snorkel.utils import ProgressBar
+
 try:
     from queue import Empty
 except:
     from Queue import Empty
-
-from .models.meta import new_sessionmaker, snorkel_conn_string
-from .utils import ProgressBar
 
 
 QUEUE_TIMEOUT = 3

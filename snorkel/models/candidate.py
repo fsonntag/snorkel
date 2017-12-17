@@ -1,13 +1,10 @@
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, ForeignKey, UniqueConstraint,
-    MetaData
+    Column, String, Integer, Float, Boolean, ForeignKey, UniqueConstraint
 )
 from sqlalchemy.orm import relationship, backref
-from functools import partial
 
-from .meta import SnorkelBase
-from ..models import snorkel_engine
-from ..utils import camel_to_under
+from snorkel.utils import camel_to_under
+from .meta import SnorkelBase, snorkel_engine
 
 
 class Candidate(SnorkelBase):
@@ -92,7 +89,7 @@ def candidate_subclass(class_name, args, table_name=None, cardinality=None,
     if cardinality is None and values is None:
         values = [True, False]
         cardinality = 2
-    
+
     # Else use values if present, and validate proper input
     elif values is not None:
         if cardinality is not None and len(values) != cardinality:
@@ -192,12 +189,12 @@ class Marginal(SnorkelBase):
     """
     __tablename__ = 'marginal'
     id           = Column(Integer, primary_key=True)
-    candidate_id = Column(Integer, 
+    candidate_id = Column(Integer,
                         ForeignKey('candidate.id', ondelete='CASCADE'))
     training     = Column(Boolean, default=True)
     value        = Column(Integer, nullable=False, default=1)
     probability  = Column(Float, nullable=False, default=0.0)
-    
+
     __table_args__ = (
         UniqueConstraint(candidate_id, training, value),
     )

@@ -2,11 +2,11 @@ import codecs
 import glob
 import os
 import re
-import lxml.etree as et
 
+import lxml.etree as et
 from bs4 import BeautifulSoup
 
-from ..models import Document
+from snorkel.models import Document
 
 
 class DocPreprocessor(object):
