@@ -505,7 +505,6 @@ class WCLSTM(Classifier):
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
-                    self.error_analysis(session, X_dev, Y_dev)
                 print(msg)
 
                 if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
