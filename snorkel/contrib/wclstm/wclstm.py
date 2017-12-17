@@ -290,6 +290,9 @@ class WCLSTM(Classifier):
         # Set learning rate
         self.lr = kwargs.get('lr', 1e-3)
 
+        # Set use xavier initialization for LSTM
+        self.use_xavier_init_lstm = kwargs.get('use_xavier_init_lstm', False)
+
         # Set weight decay
         self.weight_decay = kwargs.get('weight_decay', 0.)
 

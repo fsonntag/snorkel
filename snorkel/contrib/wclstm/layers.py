@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -5,7 +6,7 @@ import torch.nn.functional as F
 
 
 class CharRNN(nn.Module):
-    def __init__(self, batch_size, num_tokens, embed_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True, use_cuda=False):
+    def __init__(self, batch_size, num_tokens, embed_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True, use_cuda=False, use_xavier_init_lstm=False):
 
         super(CharRNN, self).__init__()
 
@@ -23,6 +24,11 @@ class CharRNN(nn.Module):
         b = 2 if self.bidirectional else 1
 
         self.char_lstm = nn.LSTM(embed_size, lstm_hidden, batch_first=True, dropout=dropout, bidirectional=self.bidirectional)
+        if use_xavier_init_lstm:
+            for weights in self.char_lstm.all_weights:
+                for weight in weights:
+                    if len(weight.data.shape) == 2:
+                        nn.init.xavier_uniform(weight, gain=math.sqrt(2.0))
         if attention:
             self.attn_linear_w_1 = nn.Linear(b * lstm_hidden, b * lstm_hidden, bias=True)
             self.attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
@@ -69,7 +75,7 @@ class CharRNN(nn.Module):
 
 
 class WordRNN(nn.Module):
-    def __init__(self, n_classes, batch_size, num_tokens, embed_size, input_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True, use_cuda=False):
+    def __init__(self, n_classes, batch_size, num_tokens, embed_size, input_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True, use_cuda=False, use_xavier_init_lstm=False):
         super(WordRNN, self).__init__()
 
         self.batch_size = batch_size
@@ -87,6 +93,12 @@ class WordRNN(nn.Module):
         b = 2 if self.bidirectional else 1
 
         self.word_lstm = nn.LSTM(input_size, lstm_hidden, batch_first=True, dropout=dropout, bidirectional=self.bidirectional)
+        if use_xavier_init_lstm:
+            for weights in self.word_lstm.all_weights:
+                for weight in weights:
+                    if len(weight.data.shape) == 2:
+                        nn.init.xavier_uniform(weight, gain=math.sqrt(2.0))
+
         if attention:
             self.attn_linear_w_1 = nn.Linear(b * lstm_hidden, b * lstm_hidden, bias=True)
             self.attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
