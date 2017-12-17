@@ -388,7 +388,7 @@ class WCLSTM(Classifier):
 
         cardinality = Y_train.shape[1] if len(Y_train.shape) > 1 else 2
         if cardinality != self.cardinality:
-            raise ValueError("Training marginals cardinality ({0}) does not"
+            raise ValueError("Training marginals cardinality ({0}) does not "
                              "match model cardinality ({1}).".format(Y_train.shape[1],
                                                                      self.cardinality))
         # Make sure marginals are in correct default format
@@ -483,24 +483,31 @@ class WCLSTM(Classifier):
                 cost += self.train_model(self.word_model, self.char_model, optimizer, loss, x_w, x_w_mask, x_c,
                                          x_c_mask, y)
 
-            if print_train_scores and cardinality == 2:
-                Y_train[Y_train > 0.5] = 1
-                Y_train[Y_train <= 0.5] = 0
-                train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
-                print(f"Train F1: {100 * train_scores[-1]}")
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
+                score_label = "F1"
+                if print_train_scores:
+                    if cardinality == 2:
+                        Y_train[Y_train > 0.5] = 1
+                        Y_train[Y_train <= 0.5] = 0
+                        train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
+                        train_score = train_scores[-1]
+                    else:
+                        train_scores = self.error_analysis(session, X_train,
+                                                           Y_train.max(dim=1)[1] + 1 % self.cardinality, display=False)
+                        train_score = train_scores[2]
+                    msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
-                    scores = self.score(X_dev, Y_dev, batch_size=self.batch_size)
+                    self.score(X_dev, Y_dev, batch_size=100)
+                    dev_scores = self.error_analysis(session, X_dev, Y_dev)
+                    dev_score = dev_scores[2]
 
-                    score = scores if self.cardinality > 2 else scores[-1]
-                    score_label = "Acc." if self.cardinality > 2 else "F1"
-                    msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * score)
+                    msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                     self.error_analysis(session, X_dev, Y_dev)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and score > dev_score_opt:
-                    dev_score_opt = score
+                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
+                    dev_score_opt = dev_score
                     self.save(save_dir=save_dir, only_param=True)
                     last_epoch_opt = idx
 
