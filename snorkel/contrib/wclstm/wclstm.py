@@ -258,7 +258,7 @@ class WCLSTM(Classifier):
         y_pred = w_model(x_w, x_w_mask, s, w_state_word)
 
         if self.host_device in self.gpu:
-            loss = criterion(y_pred.cuda(), y)
+            loss = criterion(y_pred.squeeze(1).cuda(), y)
         else:
             loss = criterion(y_pred.squeeze(1), y)
 
@@ -497,11 +497,14 @@ class WCLSTM(Classifier):
                         train_score = train_scores[-1]
                     else:
                         train_scores = self.error_analysis(session, X_train,
-                                                           Y_train.max(dim=1)[1] + 1 % self.cardinality, display=False)
+                                                           Y_train.max(dim=1)[1] + 1 % self.cardinality,
+                                                           display=False,
+                                                           batch_size=self.batch_size)
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
-                    dev_scores = self.error_analysis(session, X_dev, Y_dev)
+                    dev_scores = self.error_analysis(session, X_dev, Y_dev,
+                                                     batch_size=self.batch_size)
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
