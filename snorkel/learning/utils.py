@@ -431,7 +431,8 @@ def binary_scores_from_counts(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None):
 
 def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True):
     for type in counts.types:
-        print(f"Scores for {type}")
+        if print_scores:
+            print(f"Scores for {type}")
         calculate_scores(len(counts.t_tp[type]),
                          len(counts.t_fp[type]),
                          len(counts.t_tn[type]),
@@ -441,29 +442,30 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
                          title=title,
                          print_scores=print_scores)
 
-    print("General scores (micro)")
-    scores = calculate_scores(len(counts.tp),
-                              len(counts.fp),
-                              len(counts.tn),
-                              len(counts.fn),
-                              len(counts.fp_ov),
-                              len(counts.fn_ov),
-                              title=title,
-                              print_scores=print_scores)
-
     if weighted:
         weights = np.asarray([len(counts.t_support[type]) for type in counts.types])
         weight_sum = weights.sum()
         weights = weights / weight_sum
 
-        print(
-            f'General scores (weighted). Support: {"; ".join({f"{type}: {len(counts.t_support[type])}" for type in counts.types})}')
+        if print_scores:
+            print(f'General scores (weighted). Support: {"; ".join({f"{type}: {len(counts.t_support[type])}" for type in counts.types})}')
         scores = calculate_scores(np.average([len(counts.t_tp[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fp[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_tn[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fn[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fp_ov[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fn_ov[type]) for type in counts.types], weights=weights),
+                                  title=title,
+                                  print_scores=print_scores)
+    else:
+        if print_scores:
+            print("General scores (micro)")
+        scores = calculate_scores(len(counts.tp),
+                                  len(counts.fp),
+                                  len(counts.tn),
+                                  len(counts.fn),
+                                  len(counts.fp_ov),
+                                  len(counts.fn_ov),
                                   title=title,
                                   print_scores=print_scores)
     return scores

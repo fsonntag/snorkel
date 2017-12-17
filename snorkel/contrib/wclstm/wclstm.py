@@ -501,7 +501,6 @@ class WCLSTM(Classifier):
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
-                    self.score(X_dev, Y_dev, batch_size=100)
                     dev_scores = self.error_analysis(session, X_dev, Y_dev)
                     dev_score = dev_scores[2]
 
