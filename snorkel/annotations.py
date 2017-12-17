@@ -514,6 +514,10 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
     # Ensure ordering by CID
     cids_query = cids_query.order_by(Candidate.id)
     cids_sub_query = cids_query.subquery('cids')
+    try:
+        cardinality = X.get_candidate(session, 0).cardinality
+    except:
+        cardinality = X[0].cardinality
 
     # Load marginal tuples from db
     marginal_tuples_query = session.query(Marginal.candidate_id, Marginal.value,
@@ -521,7 +525,7 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
         .filter(Marginal.candidate_id == cids_sub_query.c.id) \
         .filter(Marginal.training == training)
     if marginal_limit:
-        marginal_tuples_query = marginal_tuples_query.limit(marginal_limit)
+        marginal_tuples_query = marginal_tuples_query.limit(marginal_limit * (cardinality - 1))
     marginal_tuples = marginal_tuples_query.all()
 
     # If an AnnotationMatrix or list of candidates X is provided, we make sure
