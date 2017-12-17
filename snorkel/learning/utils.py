@@ -295,7 +295,8 @@ class MentionScorer(Scorer):
         counts = Counts()
 
         # Get predictions
-        test_pred = test_marginals.argmax(axis=1) + 1
+        cardinality =  self._get_cardinality(test_marginals)
+        test_pred = (test_marginals.argmax(axis=1) + 1) % cardinality
 
         candidates = [(i, candidate) for i, candidate in enumerate(self.test_candidates)]
         candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start))
