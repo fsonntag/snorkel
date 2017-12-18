@@ -5,6 +5,7 @@ from time import time
 import torch.utils.data as data_utils
 from six.moves.cPickle import dump, load
 
+from contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
 from snorkel.contrib.wclstm.layers import *
 from snorkel.contrib.wclstm.utils import *
 from snorkel.learning.classifier import Classifier
@@ -332,6 +333,12 @@ class WCLSTM(Classifier):
         # Set host device
         self.host_device = kwargs.get('host_device', 'cpu')
 
+        # Set optimizer
+        self.optimizer_name = kwargs.get('optimizer', 'adam')
+
+        # Set loss
+        self.loss_name = kwargs.get('loss', 'mlsml')
+
         # Replace placeholders in embedding files
         self.replace = kwargs.get('replace', {})
 
@@ -409,7 +416,17 @@ class WCLSTM(Classifier):
         else:
             # In categorical setting, just remove unlabeled
             diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
-            train_idxs = np.where(diffs > 1e-6)[0]
+            balanced_idxs = np.where(diffs < 1e-6)[0]
+            uncat_improvement = 0.05
+            for i in range(self.cardinality - 1):
+                Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
+            Y_train[balanced_idxs, -1] += uncat_improvement
+            if self.rebalance:
+                train_idxs = LabelBalancer(Y_train, categorical=True)\
+                    .rebalance_categorical_train_idxs(rand_state=self.rand_state)
+            else:
+                train_idxs = np.where(diffs > 0)[0]
+
         X_train = [X_train[j] for j in train_idxs] if self.representation \
             else X_train[train_idxs, :]
         Y_train = Y_train[train_idxs]
@@ -467,12 +484,29 @@ class WCLSTM(Classifier):
             self.char_model.cuda()
             self.word_model.cuda()
 
-        n_examples = len(X_w_train)
+        if self.optimizer_name == 'adam':
+            optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
+                                         lr=self.lr, weight_decay=self.weight_decay)
+        elif self.optimizer_name == 'rmsprop':
+            optimizer = torch.optim.RMSprop(list(self.char_model.parameters()) + list(self.word_model.parameters()),
+                                            lr=self.lr, weight_decay=self.weight_decay)
+        elif self.optimizer_name == 'sgd':
+            optimizer = torch.optim.RMSprop(list(self.char_model.parameters()) + list(self.word_model.parameters()),
+                                            lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
+        else:
+            warnings.warn('Couldn\'t recognize optimizer, using Adam')
+            optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
+                                         lr=self.lr, weight_decay=self.weight_decay)
 
-        optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
-                                     lr=self.lr, weight_decay=self.weight_decay)
-
-        loss = nn.MultiLabelSoftMarginLoss(size_average=False)
+        if self.loss_name == 'mlsml':
+            loss = nn.MultiLabelSoftMarginLoss()
+        elif self.loss_name == 'sbce':
+            loss = SigmoidWithBinaryCrossEntropy()
+        elif self.loss_name == 'bcell':
+            loss = nn.BCEWithLogitsLoss()
+        else:
+            warnings.warn('Couldn\'t recognize loss, using MultiLabelSoftMarginLoss')
+            loss = nn.MultiLabelSoftMarginLoss()
 
         dev_score_opt = 0.0
         last_epoch_opt = None
@@ -487,7 +521,7 @@ class WCLSTM(Classifier):
                                          x_c_mask, y)
 
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
-                msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
+                msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost)
                 score_label = "F1"
                 if print_train_scores:
                     if cardinality == 2:
@@ -497,8 +531,8 @@ class WCLSTM(Classifier):
                         train_score = train_scores[-1]
                     else:
                         train_scores = self.error_analysis(session, X_train,
-                                                           Y_train.max(dim=1)[1] + 1 % self.cardinality,
-                                                           display=False,
+                                                           (Y_train.max(dim=1)[1] + 1) % self.cardinality,
+                                                           display=True,
                                                            batch_size=self.batch_size)
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
@@ -535,7 +569,6 @@ class WCLSTM(Classifier):
 
         X_w, X_c = self._preprocess_data(X, extend=False)
         sigmoid = nn.Sigmoid()
-        softmax = nn.Softmax()
 
         y = np.array([])
         if self.cardinality > 2:
@@ -569,12 +602,12 @@ class WCLSTM(Classifier):
             y_pred = self.word_model(x_w, x_w_mask, s, w_state_word)
             if self.host_device in self.gpu:
                 if self.cardinality > 2:
-                    y = np.vstack((y, softmax(y_pred).data.cpu().numpy()))
+                    y = np.vstack((y, sigmoid(y_pred).data.cpu().numpy()))
                 else:
                     y = np.append(y, sigmoid(y_pred).data.cpu().numpy())
             else:
                 if self.cardinality > 2:
-                    y = np.vstack((y, softmax(y_pred).data.numpy()))
+                    y = np.vstack((y, sigmoid(y_pred).data.numpy()))
                 else:
                     y = np.append(y, sigmoid(y_pred).data.numpy())
         return y

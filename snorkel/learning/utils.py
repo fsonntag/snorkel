@@ -43,13 +43,15 @@ def reshape_marginals(marginals):
 
 
 class LabelBalancer(object):
-    def __init__(self, y):
+    def __init__(self, y, categorical=False):
         """Utility class to rebalance training labels
         For example, to get the indices of a training set
         with labels y and around 90 percent negative examples,
             LabelBalancer(y).get_train_idxs(rebalance=0.1)
         """
-        self.y = np.ravel(y)
+        self.y = y
+        if not categorical:
+            self.y = np.ravel(self.y)
 
     def _get_pos(self, split):
         return np.where(self.y > (split + 1e-6))[0]
@@ -91,6 +93,28 @@ class LabelBalancer(object):
         rs.shuffle(idxs)
         return idxs
 
+    def rebalance_categorical_train_idxs(self, rand_state=None):
+        """Get training indices based on @y
+            @rebalance: bool or fraction of positive examples desired
+                        If True, default fraction is 0.5. If False no balancing.
+            @split: Split point for positive and negative classes
+        """
+        rs = np.random if rand_state is None else rand_state
+        row_pos = []
+        row_n = []
+        split = 1 / self.y.shape[1]
+        for i in range(self.y.shape[1]):
+            curr_column_pos = np.where(self.y[:, i] > (split + 1e-6))[0]
+            if len(curr_column_pos) == 0:
+                raise ValueError(f"No positive labels for row {i}.")
+            row_pos.append(curr_column_pos)
+            row_n.append(len(curr_column_pos))
+        min_n = min(row_n)
+        for i in range(len(row_pos)):
+            row_pos[i] = row_pos[i][:min_n]
+        idxs = np.concatenate(row_pos)
+        rs.shuffle(idxs)
+        return idxs
 
 ############################################################
 ### Advanced Scoring Classes
