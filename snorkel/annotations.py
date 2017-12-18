@@ -535,13 +535,13 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
         # Handle AnnotationMatrix
         try:
             cardinality = X.get_candidate(session, 0).cardinality
-            marginals = np.zeros((marginal_limit if marginal_limit else X.shape[0], cardinality))
+            marginals = np.zeros((int(len(marginal_tuples) / (cardinality - 1)), cardinality))
             cid_map = X.candidate_index
         
         # Handle list of Candidates
         except:
             cardinality = X[0].cardinality
-            marginals = np.zeros((marginal_limit if marginal_limit else len(X), cardinality))
+            marginals = np.zeros((int(len(marginal_tuples) / (cardinality - 1)), cardinality))
             cid_map = dict([(x.id, i) for i, x in enumerate(X)])
     
     # Otherwise if X is not provided, we sort by candidate id, using the
