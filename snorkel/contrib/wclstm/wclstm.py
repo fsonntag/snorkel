@@ -5,11 +5,10 @@ from time import time
 import torch.utils.data as data_utils
 from six.moves.cPickle import dump, load
 
-from contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
+from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
 from snorkel.contrib.wclstm.layers import *
 from snorkel.contrib.wclstm.utils import *
 from snorkel.learning.classifier import Classifier
-# from snorkel.learning.disc_learning import TFNoiseAwareModel
 from snorkel.learning.utils import reshape_marginals, LabelBalancer
 
 
