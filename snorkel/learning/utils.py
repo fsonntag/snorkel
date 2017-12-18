@@ -102,9 +102,10 @@ class LabelBalancer(object):
         rs = np.random if rand_state is None else rand_state
         row_pos = []
         row_n = []
-        split = 1 / self.y.shape[1]
-        for i in range(self.y.shape[1]):
-            curr_column_pos = np.where(self.y[:, i] > (split + 1e-6))[0]
+        cardinality = self.y.shape[1]
+        max_indices = (self.y.argmax(axis=1) + 1) % cardinality
+        for i in range(cardinality):
+            curr_column_pos = np.where(max_indices == i)[0]
             if len(curr_column_pos) == 0:
                 raise ValueError(f"No positive labels for row {i}.")
             row_pos.append(curr_column_pos)

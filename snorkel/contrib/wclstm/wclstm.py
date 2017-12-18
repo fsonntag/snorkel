@@ -520,6 +520,7 @@ class WCLSTM(Classifier):
                                          x_c_mask, y)
 
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
+                print(f'Finished learning in epoch {idx}')
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost)
                 score_label = "F1"
                 if print_train_scores:
@@ -529,6 +530,7 @@ class WCLSTM(Classifier):
                         train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
                         train_score = train_scores[-1]
                     else:
+                        print('Calculating train scores...')
                         train_scores = self.error_analysis(session, X_train,
                                                            (Y_train.max(dim=1)[1] + 1) % self.cardinality,
                                                            display=True,
@@ -536,6 +538,7 @@ class WCLSTM(Classifier):
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
+                    print('Calculating dev scores...')
                     dev_scores = self.error_analysis(session, X_dev, Y_dev,
                                                      batch_size=self.batch_size)
                     dev_score = dev_scores[2]
