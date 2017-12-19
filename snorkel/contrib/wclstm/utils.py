@@ -102,7 +102,7 @@ def change_marginals_with_spanset_information(candidates, marginals):
     candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
 
     for type in types:
-        type_label = candidates[0][1].values.index(type) + 1
+        type_label = candidates[0][1].values.index(type)
         current_spanset = []
         for i, (original_i, candidate) in enumerate(candidates):
             if np.argmax(marginals[original_i]) == type_label:
