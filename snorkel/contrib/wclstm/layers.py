@@ -1,12 +1,14 @@
 import math
+
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 
 class CharRNN(nn.Module):
-    def __init__(self, batch_size, num_tokens, embed_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True, use_cuda=False, use_xavier_init_lstm=False):
+    def __init__(self, batch_size, num_tokens, embed_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True,
+                 use_cuda=False, use_xavier_init_lstm=False):
 
         super(CharRNN, self).__init__()
 
@@ -23,7 +25,8 @@ class CharRNN(nn.Module):
 
         b = 2 if self.bidirectional else 1
 
-        self.char_lstm = nn.LSTM(embed_size, lstm_hidden, batch_first=True, dropout=dropout, bidirectional=self.bidirectional)
+        self.char_lstm = nn.LSTM(embed_size, lstm_hidden, batch_first=True, dropout=dropout,
+                                 bidirectional=self.bidirectional)
         if use_xavier_init_lstm:
             for weights in self.char_lstm.all_weights:
                 for weight in weights:
@@ -49,7 +52,7 @@ class CharRNN(nn.Module):
             """
             char_squish = F.tanh(self.attn_linear_w_1(output_char))
             char_attn = self.attn_linear_w_2(char_squish)
-            char_attn.data.masked_fill_(x_mask.data.unsqueeze(2),  -1e12)
+            char_attn.data.masked_fill_(x_mask.data.unsqueeze(2), -1e12)
             char_attn_norm = F.softmax(char_attn.squeeze(2))
             output = torch.bmm(output_char.transpose(1, 2), char_attn_norm.unsqueeze(2)).squeeze(2)
         else:
@@ -75,7 +78,8 @@ class CharRNN(nn.Module):
 
 
 class WordRNN(nn.Module):
-    def __init__(self, n_classes, batch_size, num_tokens, embed_size, input_size, lstm_hidden, dropout=0.0, attention=True, bidirectional=True, use_cuda=False, use_xavier_init_lstm=False):
+    def __init__(self, n_classes, batch_size, num_tokens, embed_size, input_size, lstm_hidden, dropout=0.0,
+                 attention=True, bidirectional=True, use_cuda=False, use_xavier_init_lstm=False):
         super(WordRNN, self).__init__()
 
         self.batch_size = batch_size
@@ -92,7 +96,8 @@ class WordRNN(nn.Module):
 
         b = 2 if self.bidirectional else 1
 
-        self.word_lstm = nn.LSTM(input_size, lstm_hidden, batch_first=True, dropout=dropout, bidirectional=self.bidirectional)
+        self.word_lstm = nn.LSTM(input_size, lstm_hidden, batch_first=True, dropout=dropout,
+                                 bidirectional=self.bidirectional)
         if use_xavier_init_lstm:
             for weights in self.word_lstm.all_weights:
                 for weight in weights:
@@ -126,7 +131,7 @@ class WordRNN(nn.Module):
             word_attn.data.masked_fill_(x_mask.data.unsqueeze(2), -1e12)
             word_attn_norm = F.softmax(word_attn.squeeze(2))
             word_attn_vectors = torch.bmm(output_word.transpose(1, 2), word_attn_norm.unsqueeze(2)).squeeze(2)
-            ouptut = self.linear(word_attn_vectors)
+            output = self.linear(word_attn_vectors)
         else:
             """
             Mean pooling
@@ -138,8 +143,8 @@ class WordRNN(nn.Module):
                 weights = Variable(torch.ones(x.size()) / x_lens.unsqueeze(1).float())
             weights.data.masked_fill_(x_mask.data, 0.0)
             word_vectors = torch.bmm(output_word.transpose(1, 2), weights.unsqueeze(2)).squeeze(2)
-            ouptut = self.linear(word_vectors)
-        return ouptut
+            output = self.linear(word_vectors)
+        return output
 
     def init_hidden(self, batch_size):
         if self.bidirectional:
