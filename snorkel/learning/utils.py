@@ -93,7 +93,7 @@ class LabelBalancer(object):
         rs.shuffle(idxs)
         return idxs
 
-    def rebalance_categorical_train_idxs(self, rand_state=None):
+    def rebalance_categorical_train_idxs(self, rebalance=False, rand_state=None):
         """Get training indices based on @y
             @rebalance: bool or fraction of positive examples desired
                         If True, default fraction is 0.5. If False no balancing.
@@ -110,9 +110,14 @@ class LabelBalancer(object):
                 raise ValueError(f"No positive labels for row {i}.")
             row_pos.append(curr_column_pos)
             row_n.append(len(curr_column_pos))
-        min_n = min(row_n)
-        for i in range(len(row_pos)):
-            row_pos[i] = row_pos[i][:min_n]
+        n_neg = row_n[0]
+        n_pos = sum(row_n[1:])
+        p = 0.5 if rebalance == True else rebalance
+        n_neg, n_pos = self._get_counts(n_neg, n_pos, p)
+        row_pos[0] = row_pos[0][:n_neg]
+        for i in range(1, len(row_pos)):
+            row_pos[i] = row_pos[i][:n_pos]
+
         idxs = np.concatenate(row_pos)
         rs.shuffle(idxs)
         return idxs

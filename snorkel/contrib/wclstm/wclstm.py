@@ -422,7 +422,7 @@ class WCLSTM(Classifier):
             Y_train[balanced_idxs, -1] += uncat_improvement
             if self.rebalance:
                 train_idxs = LabelBalancer(Y_train, categorical=True)\
-                    .rebalance_categorical_train_idxs(rand_state=self.rand_state)
+                    .rebalance_categorical_train_idxs(rebalance=self.rebalance, rand_state=self.rand_state)
             else:
                 train_idxs = np.where(diffs > 0)[0]
 
