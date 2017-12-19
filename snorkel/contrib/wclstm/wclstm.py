@@ -344,6 +344,9 @@ class WCLSTM(Classifier):
         # Set patience (number of epochs to wait without model improvement)
         self.patience = kwargs.get('patience', 100)
 
+        # Use spansets to reduce marginals
+        self.use_spansets_for_marginals = kwargs.get('use_spansets_for_marginals', False)
+
         print("===============================================")
         print(f"Number of learning epochs:     {self.n_epochs}")
         print(f"Learning rate:                 {self.lr}")
@@ -636,7 +639,8 @@ class WCLSTM(Classifier):
                 batch_marginals.append(batch)
             all_marginals = np.concatenate(batch_marginals)
 
-        change_marginals_with_spanset_information(X, all_marginals)
+        if self.use_spansets_for_marginals:
+            change_marginals_with_spanset_information(X, all_marginals)
 
         return all_marginals
 

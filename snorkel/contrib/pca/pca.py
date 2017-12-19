@@ -643,6 +643,9 @@ class PCA(TFNoiseAwareModel):
         # Set method to reduce variance
         self.method = kwargs.get('method', None)
 
+        # Use spansets to reduce marginals
+        self.use_spansets_for_marginals = kwargs.get('use_spansets_for_marginals', False)
+
         print("===============================================")
         print(f"Number of learning epochs:         {self.n_epochs}")
         print(f"Learning rate:                     {self.lr}")
@@ -877,7 +880,8 @@ class PCA(TFNoiseAwareModel):
 
         all_marginals = self.predict(self.model, new_X_train)
 
-        # change_marginals_with_spanset_information([x[-1] for x in X], all_marginals)
+        if self.use_spansets_for_marginals:
+            change_marginals_with_spanset_information([x[-1] for x in X], all_marginals)
         return all_marginals
 
     def embed(self, X):
