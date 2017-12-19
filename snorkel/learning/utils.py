@@ -320,8 +320,6 @@ class MentionScorer(Scorer):
         :param display: show calibration plots?
         """
         test_label_array = []
-        correct = set()
-        incorrect = set()
         counts = Counts()
 
         # Get predictions

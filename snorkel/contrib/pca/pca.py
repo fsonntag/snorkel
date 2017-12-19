@@ -4,10 +4,12 @@ import numpy as np
 
 import warnings
 
+from contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
+from contrib.wclstm.utils import change_marginals_with_spanset_information
 from snorkel.learning.disc_learning import TFNoiseAwareModel
 from snorkel.models import Candidate
 
-from utils import candidate_to_tokens, SymbolTable
+from .utils import candidate_to_tokens, SymbolTable
 from six.moves.cPickle import dump, load
 from time import time
 import scipy
@@ -106,7 +108,7 @@ class PCA(TFNoiseAwareModel):
 
             # use kerney decay?
             if self.kernel is None:
-                context_seqs.append((sent_seq, m1_seq, left_seq, right_seq, True))
+                context_seqs.append((sent_seq, m1_seq, left_seq, right_seq, True, c))
             else:
                 # TODO -- double Check!!!!!!
                 dm1 = dist_m1[m1_start: m1_end]
@@ -124,7 +126,7 @@ class PCA(TFNoiseAwareModel):
 
         print("context lengths:")
         for i in dist:
-            print(i, np.mean(dist[i]), np.max(dist[i]))
+            print(f"{i} {np.mean(dist[i])} {np.max(dist[i])}")
 
         return context_seqs
 
@@ -255,12 +257,13 @@ class PCA(TFNoiseAwareModel):
                 if len(_.strip().split(' ')) > self.word_emb_dim + 1:
                     l.append(' ')
                 else:
-                    word = _.strip().split(' ')[0]
+                    word = _.rstrip().split(' ')[0]
                     # Replace placeholder to original word defined by user.
                     for key in self.replace.keys():
                         word = word.replace(key, self.replace[key])
                     l.append(word)
-            map(self.word_dict.get, l)
+            for w in l:
+                self.word_dict.get(w)
             f.close()
 
         if self.char and extend_char:
@@ -277,7 +280,8 @@ class PCA(TFNoiseAwareModel):
                     for key in self.replace.keys():
                         word = word.replace(key, self.replace[key])
                     l.append(word)
-            map(self.char_dict.get, l)
+            for w in l:
+                self.char_dict.get(w)
             f.close()
 
     def load_embeddings(self):
@@ -301,7 +305,7 @@ class PCA(TFNoiseAwareModel):
             if fmt == "fastText" and i == 0:
                 continue
 
-            line = line.strip().split(' ')
+            line = line.rstrip().split(' ')
             if len(line) > self.word_emb_dim + 1:
                 line[0] = ' '
             for key in self.replace.keys():
@@ -627,6 +631,12 @@ class PCA(TFNoiseAwareModel):
         # Set host device
         self.host_device = kwargs.get('host_device', 'cpu')
 
+        # Set optimizer
+        self.optimizer_name = kwargs.get('optimizer', 'adam')
+
+        # Set loss
+        self.loss_name = kwargs.get('loss', 'mlsml')
+
         # Replace placeholders in embedding files
         self.replace = kwargs.get('replace', {})
 
@@ -634,28 +644,28 @@ class PCA(TFNoiseAwareModel):
         self.method = kwargs.get('method', None)
 
         print("===============================================")
-        print("Number of learning epochs:         ", self.n_epochs)
-        print("Learning rate:                     ", self.lr)
-        print("Ignore top l principal components: ", self.l)
-        print("Select top k principal components: ", self.r)
-        print("Batch size:                        ", self.batch_size)
-        print("Rebalance:                         ", self.rebalance)
-        print("Surrounding window size:           ", self.window_size)
-        print("Use sentence sequence:             ", self.sent_feat)
-        print("Use window sequence:               ", self.cont_feat)
-        print("Bidirectional:                     ", self.bidirectional)
-        print("Host device:                       ", self.host_device)
-        print("Use char embeddings:               ", self.char)
-        print("Char gram:                         ", self.char_gram)
-        print("Kernel:                            ", self.kernel)
+        print(f"Number of learning epochs:         {self.n_epochs}")
+        print(f"Learning rate:                     {self.lr}")
+        print(f"Ignore top l principal components: {self.l}")
+        print(f"Select top k principal components: {self.r}")
+        print(f"Batch size:                        {self.batch_size}")
+        print(f"Rebalance:                         {self.rebalance}")
+        print(f"Surrounding window size:           {self.window_size}")
+        print(f"Use sentence sequence:             {self.sent_feat}")
+        print(f"Use window sequence:               {self.cont_feat}")
+        print(f"Bidirectional:                     {self.bidirectional}")
+        print(f"Host device:                       {self.host_device}")
+        print(f"Use char embeddings:               {self.char}")
+        print(f"Char gram:                         {self.char_gram}")
+        print(f"Kernel:                            {self.kernel}")
         if self.kernel == 'exp':
-            print("Exp kernel decay:                  ", self.decay)
-        print("Word embedding size:               ", self.word_emb_dim)
-        print("Char embedding size:               ", self.char_emb_dim)
-        print("Word embedding:                    ", self.word_emb_path)
-        print("Char embedding:                    ", self.char_emb_path)
-        print("Invariance method                  ", self.method)
-        print("NER/1-arity candidates             ", self.ner)
+            print(f"Exp kernel decay:                  {self.decay}")
+        print(f"Word embedding size:               {self.word_emb_dim}")
+        print(f"Char embedding size:               {self.char_emb_dim}")
+        print(f"Word embedding:                    {self.word_emb_path}")
+        print(f"Char embedding:                    {self.char_emb_path}")
+        print(f"Invariance method                  {self.method}")
+        print(f"NER/1-arity candidates             {self.ner}")
         print("===============================================")
 
         assert self.word_emb_path is not None
@@ -666,7 +676,7 @@ class PCA(TFNoiseAwareModel):
             self.create_dict(kwargs['init_pretrained'], word=True, char=self.char)
             del self.model_kwargs["init_pretrained"]
 
-    def train(self, X_train, Y_train, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
+    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
               dev_ckpt_delay=0.75, save_dir='checkpoints', **kwargs):
 
         """
@@ -674,6 +684,7 @@ class PCA(TFNoiseAwareModel):
         train.
         """
 
+        print_train_scores = kwargs.get('print_train_scores', False)
         self._init_kwargs(**kwargs)
 
         verbose = print_freq > 0
@@ -740,8 +751,21 @@ class PCA(TFNoiseAwareModel):
                                                                rand_state=self.rand_state)
         else:
             # In categorical setting, just remove unlabeled
+            # diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
+            # train_idxs = np.where(diffs > 1e-6)[0]
+            # In categorical setting, just remove unlabeled
             diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
-            train_idxs = np.where(diffs > 1e-6)[0]
+            balanced_idxs = np.where(diffs < 1e-6)[0]
+            uncat_improvement = 0.05
+            for i in range(self.cardinality - 1):
+                Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
+            Y_train[balanced_idxs, -1] += uncat_improvement
+            if self.rebalance:
+                train_idxs = LabelBalancer(Y_train, categorical=True) \
+                    .rebalance_categorical_train_idxs(rebalance=self.rebalance, rand_state=self.rand_state)
+            else:
+                train_idxs = np.where(diffs > 0)[0]
+
         X_train = [X_train[j] for j in train_idxs] if self.representation \
             else X_train[train_idxs, :]
         Y_train = Y_train[train_idxs]
@@ -765,12 +789,34 @@ class PCA(TFNoiseAwareModel):
         train_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
 
         n_examples, n_features = new_X_train.size()
-        n_classes = 1 if self.cardinality == 2 else None
+        n_classes = 1 if self.cardinality == 2 else self.cardinality
 
         self.model = self.build_model(n_features, n_classes)
-        loss = nn.MultiLabelSoftMarginLoss(size_average=False)
 
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        if self.optimizer_name == 'adam':
+            optimizer = torch.optim.Adam(self.model.parameters(),
+                                         lr=self.lr, weight_decay=self.weight_decay)
+        elif self.optimizer_name == 'rmsprop':
+            optimizer = torch.optim.RMSprop(self.model.parameters(),
+                                            lr=self.lr, weight_decay=self.weight_decay)
+        elif self.optimizer_name == 'sgd':
+            optimizer = torch.optim.RMSprop(self.model.parameters(),
+                                            lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
+        else:
+            warnings.warn('Couldn\'t recognize optimizer, using Adam')
+            optimizer = torch.optim.Adam(self.model.parameters(),
+                                         lr=self.lr, weight_decay=self.weight_decay)
+
+        if self.loss_name == 'mlsml':
+            loss = nn.MultiLabelSoftMarginLoss()
+        elif self.loss_name == 'sbce':
+            loss = SigmoidWithBinaryCrossEntropy()
+        elif self.loss_name == 'bcell':
+            loss = nn.BCEWithLogitsLoss()
+        else:
+            warnings.warn('Couldn\'t recognize loss, using MultiLabelSoftMarginLoss')
+            loss = nn.MultiLabelSoftMarginLoss()
+
 
         dev_score_opt = 0.0
 
@@ -779,16 +825,34 @@ class PCA(TFNoiseAwareModel):
             for x, y in train_loader:
                 cost += self.train_model(self.model, loss, optimizer, x, y.float())
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
-                msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost / n_examples)
+                print(f'Finished learning in epoch {idx + 1}')
+                msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost)
+                score_label = "F1"
+                if print_train_scores:
+                    if cardinality == 2:
+                        Y_train[Y_train > 0.5] = 1
+                        Y_train[Y_train <= 0.5] = 0
+                        train_scores = self.score(X_train, Y_train, batch_size=self.batch_size)
+                        train_score = train_scores[-1]
+                    else:
+                        print('Calculating train scores...')
+                        train_scores = self.error_analysis(session, [x[-1] for x in X_train],
+                                                           (Y_train.max(dim=1)[1] + 1) % self.cardinality,
+                                                           display=True,
+                                                           batch_size=self.batch_size)
+                        train_score = train_scores[2]
+                    msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
-                    scores = self.score(X_dev, Y_dev, batch_size=self.batch_size)
-                    score = scores if self.cardinality > 2 else scores[-1]
-                    score_label = "Acc." if self.cardinality > 2 else "F1"
-                    msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * score)
+                    print('Calculating dev scores...')
+                    dev_scores = self.error_analysis(session, [x[-1] for x in X_dev], Y_dev,
+                                                     batch_size=self.batch_size)
+                    dev_score = dev_scores[2]
+
+                    msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and score > dev_score_opt:
-                    dev_score_opt = score
+                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
+                    dev_score_opt = dev_score
                     self.save(save_dir=save_dir, only_param=True)
 
         # Conclude training
@@ -811,7 +875,10 @@ class PCA(TFNoiseAwareModel):
 
         new_X_train = new_X_train.float()
 
-        return self.predict(self.model, new_X_train)
+        all_marginals = self.predict(self.model, new_X_train)
+
+        # change_marginals_with_spanset_information([x[-1] for x in X], all_marginals)
+        return all_marginals
 
     def embed(self, X):
 
