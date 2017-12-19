@@ -4,8 +4,8 @@ import numpy as np
 
 import warnings
 
-from contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
-from contrib.wclstm.utils import change_marginals_with_spanset_information
+from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
+from snorkel.contrib.wclstm.utils import change_marginals_with_spanset_information
 from snorkel.learning.disc_learning import TFNoiseAwareModel
 from snorkel.models import Candidate
 
