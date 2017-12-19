@@ -621,7 +621,7 @@ class WCLSTM(Classifier):
         defaults to no batching.
         """
         if batch_size is None:
-            return self._marginals_batch(X)
+            all_marginals = self._marginals_batch(X)
         else:
             N = len(X) if self.representation else X.shape[0]
             n_batches = int(np.floor(N / batch_size))
@@ -634,7 +634,11 @@ class WCLSTM(Classifier):
                 if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
-            return np.concatenate(batch_marginals)
+            all_marginals = np.concatenate(batch_marginals)
+
+        change_marginals_with_spanset_information(X, all_marginals)
+
+        return all_marginals
 
     def save(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False):
         """Save current model"""
