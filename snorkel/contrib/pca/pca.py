@@ -594,6 +594,9 @@ class PCA(TFNoiseAwareModel):
         # Set learning rate
         self.lr = kwargs.get('lr', 1e-3)
 
+        # Set weight decay
+        self.weight_decay = kwargs.get('weight_decay', 0.)
+
         # Set learning epoch
         self.n_epochs = kwargs.get('n_epochs', 100)
 
