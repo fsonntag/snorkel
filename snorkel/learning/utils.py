@@ -112,15 +112,15 @@ class LabelBalancer(object):
             row_n.append(len(curr_column_pos))
         n_neg = row_n[0]
         n_pos = sum(row_n[1:])
-        p = 0.5 if rebalance == True else rebalance
+        p = 0.5 if rebalance is True else rebalance
         n_neg, n_pos = self._get_counts(n_neg, n_pos, p)
-        row_pos[0] = row_pos[0][:n_neg]
+        row_pos[0] = rs.choice(row_pos[0], size=n_neg, replace=False)
         for i in range(1, len(row_pos)):
-            row_pos[i] = row_pos[i][:n_pos]
-
+            row_pos[i] = rs.choice(row_pos[i], size=n_pos, replace=False)
         idxs = np.concatenate(row_pos)
         rs.shuffle(idxs)
         return idxs
+
 
 ############################################################
 ### Advanced Scoring Classes
@@ -325,7 +325,7 @@ class MentionScorer(Scorer):
         counts = Counts()
 
         # Get predictions
-        cardinality =  self._get_cardinality(test_marginals)
+        cardinality = self._get_cardinality(test_marginals)
         test_pred = (test_marginals.argmax(axis=1) + 1) % cardinality
 
         candidates = [(i, candidate) for i, candidate in enumerate(self.test_candidates)]
@@ -354,7 +354,8 @@ class MentionScorer(Scorer):
                     else:
                         counts.fp.add(candidate)
                         counts.t_fp[type].add(candidate)
-                        if self._overlapping_candidate_has_label({predicted_label}, type_i, candidate, candidates, False):
+                        if self._overlapping_candidate_has_label({predicted_label}, type_i, candidate, candidates,
+                                                                 False):
                             counts.fp_ov.add(candidate)
                             counts.t_fp_ov[type].add(candidate)
                 else:
@@ -479,7 +480,8 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
         weights = weights / weight_sum
 
         if print_scores:
-            print(f'General scores (weighted). Support: {"; ".join({f"{type}: {len(counts.t_support[type])}" for type in counts.types})}')
+            print(
+                f'General scores (weighted). Support: {"; ".join({f"{type}: {len(counts.t_support[type])}" for type in counts.types})}')
         scores = calculate_scores(np.average([len(counts.t_tp[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fp[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_tn[type]) for type in counts.types], weights=weights),
