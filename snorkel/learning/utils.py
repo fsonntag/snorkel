@@ -333,27 +333,27 @@ class MentionScorer(Scorer):
             type_labels.add(candidates[0][1].values.index(type) + 1)
 
         for type in types:
-            type_label = candidates[0][1].values.index(type) + 1
-            other_labels = type_labels - {type_label} | {0}
+            current_type_label = candidates[0][1].values.index(type) + 1
+            other_labels = type_labels - {current_type_label} | {0}
 
             for type_i, (i, candidate) in enumerate(candidates):
-                test_label = self._get_label_for_candidate(i, candidate)
-                if test_label != 0 and test_label == type_label:
+                true_test_label = self._get_label_for_candidate(i, candidate)
+                if true_test_label != 0 and true_test_label == current_type_label:
                     counts.t_support[type].add(candidate)
-                test_label_array.append(test_label)
-
-                if test_pred[i] == type_label:
-                    if test_label == type_label:
+                test_label_array.append(true_test_label)
+                predicted_label = test_pred[i]
+                if predicted_label == current_type_label:
+                    if true_test_label == current_type_label:
                         counts.tp.add(candidate)
                         counts.t_tp[type].add(candidate)
                     else:
                         counts.fp.add(candidate)
                         counts.t_fp[type].add(candidate)
-                        if self._overlapping_candidate_has_label({test_pred[i]}, type_i, candidate, candidates, False):
+                        if self._overlapping_candidate_has_label({predicted_label}, type_i, candidate, candidates, False):
                             counts.fp_ov.add(candidate)
                             counts.t_fp_ov[type].add(candidate)
                 else:
-                    if test_label != type_label:
+                    if true_test_label != current_type_label:
                         counts.tn.add(candidate)
                         counts.t_tn[type].add(candidate)
                     else:
