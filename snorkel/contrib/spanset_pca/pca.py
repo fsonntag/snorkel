@@ -45,16 +45,15 @@ class MultiOutputForward(nn.Module):
 
     def forward(self, x):
         marginal_out = self.linear(x)
-        marginal_out[(marginal_out == 0.).detach()] = -1.
+        marginal_out[(marginal_out == 0.).detach()] = -100.
         max_values, max_columns = torch.max(marginal_out, dim=1)
 
         for i in range(marginal_out.size(2) - 1):
             max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
                                                  dim=1)
-            row_is_not_max = max_rows != i
+            row_is_not_max = (max_rows != i) * 100.
             marginal_out[:, -1, i] = row_is_not_max
-            # max_out_columns =
-        marginal_out[(marginal_out == -1.).detach()] = 0
+        marginal_out[(marginal_out == -100.).detach()] = 0
         max_out_columns = Variable(
             torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
         for i in range(marginal_out.size(2) - 1):
@@ -870,14 +869,13 @@ class PCA(TFNoiseAwareModel):
         X_dev, Y_dev = merge_to_spansets_dev(X_dev, Y_dev)
         max_len_spanset = max(len(spanset) for spanset in X_dev)
         new_X_dev = None
-        for i in range(len(X_train)):
-            spanset = X_train[i]
+        for i in range(len(X_dev)):
+            spanset = X_dev[i]
             for j in range(len(spanset)):
                 feature = self.gen_feature(spanset[j][1])
                 if new_X_dev is None:
-                    new_X_dev = torch.from_numpy(
-                        np.zeros((len(X_dev), max_len_spanset + 1, feature.size(1)), dtype=np.float)).float()
-                    new_X_dev[i, j] = feature
+                    new_X_dev = torch.zeros((len(X_dev), max_len_spanset + 1, feature.size(1)))
+                new_X_dev[i, j] = feature
 
         new_Y_dev = sparse.lil_matrix((len(Y_dev), max_len_spanset), dtype=np.int)
         for i in range(len(Y_dev)):
@@ -969,7 +967,7 @@ class PCA(TFNoiseAwareModel):
         for i in range(len(X)):
             feature = self.gen_feature(X[i])
             if new_X_train is None:
-                new_X_train = torch.from_numpy(np.zeros((len(X), feature.size(1))))
+                new_X_train = torch.zeros((len(X), feature.size(1)))
             new_X_train[i] = feature
 
         return new_X_train.float().numpy()
