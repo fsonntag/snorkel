@@ -110,13 +110,13 @@ def change_marginals_with_spanset_information(candidates, marginals):
                     current_spanset.append((original_i, candidate))
                 else:
                     last_candidate = current_spanset[-1][1]
-                    if last_candidate[0].char_end > candidate[0].char_start:
+                    if last_candidate[0].sentence_id == candidate[0].sentence_id \
+                            and last_candidate[0].char_end > candidate[0].char_start:
                         current_spanset.append((original_i, candidate))
                     else:
                         change_lower_spanset_probabilities(current_spanset, marginals, type_label)
                         current_spanset = [(original_i, candidate)]
         change_lower_spanset_probabilities(current_spanset, marginals, type_label)
-
 
 def change_lower_spanset_probabilities(current_spanset, marginals, type_label):
     if not current_spanset or len(current_spanset) == 1:
@@ -125,3 +125,40 @@ def change_lower_spanset_probabilities(current_spanset, marginals, type_label):
     max_index = marginal_indices[np.argmax(marginals[marginal_indices, type_label])]
     non_max_indices = marginal_indices[np.argwhere(marginal_indices != max_index)]
     marginals[non_max_indices, -1] = 1.
+
+
+def merge_to_spansets(candidates, marginals):
+    candidate_spansets = []
+    marginal_spansets = []
+    types = candidates[0].values[:-1]
+
+    candidates = [(i, candidate) for i, candidate in enumerate(candidates)]
+    candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
+
+    for type in types:
+        type_label = candidates[0][1].values.index(type)
+        current_spanset = []
+        for i, (original_i, candidate) in enumerate(candidates):
+            if np.argmax(marginals[original_i]) == type_label:
+                if current_spanset == []:
+                    current_spanset.append((original_i, candidate))
+                else:
+                    last_candidate = current_spanset[-1][1]
+                    if last_candidate[0].char_end > candidate[0].char_start:
+                        current_spanset.append((original_i, candidate))
+                    else:
+                        current_marginals = marginals_for_spanset(current_spanset, marginals)
+                        marginal_spansets.append(current_marginals)
+                        candidate_spansets.append(current_spanset)
+                        current_spanset = [(original_i, candidate)]
+        current_marginals = marginals_for_spanset(current_spanset, marginals)
+        marginal_spansets.append(current_marginals)
+        candidate_spansets.append(current_spanset)
+    return candidate_spansets, marginal_spansets
+
+def marginals_for_spanset(current_spanset, marginals):
+    if not current_spanset:
+        return
+    marginal_indices = np.asarray([css[0] for css in current_spanset])
+    return marginals[marginal_indices]
+

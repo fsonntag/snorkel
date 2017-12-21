@@ -5,8 +5,8 @@ from time import time
 import torch.utils.data as data_utils
 from six.moves.cPickle import dump, load
 
-from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
 from snorkel.contrib.wclstm.layers import *
+from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
 from snorkel.contrib.wclstm.utils import *
 from snorkel.learning.classifier import Classifier
 from snorkel.learning.utils import reshape_marginals, LabelBalancer
@@ -432,6 +432,8 @@ class WCLSTM(Classifier):
         X_train = [X_train[j] for j in train_idxs] if self.representation \
             else X_train[train_idxs, :]
         Y_train = Y_train[train_idxs]
+
+        change_marginals_with_spanset_information(X_train, Y_train)
 
         if verbose:
             st = time()
