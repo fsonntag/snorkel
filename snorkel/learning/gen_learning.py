@@ -127,7 +127,7 @@ class GenerativeModel(Classifier):
 
         # Check to make sure matrix is int-valued
         element_type = type(L[0,0])
-        if not element_type in [np.int64, np.int32, int]:
+        if not issubclass(element_type, np.integer) and not element_type == int:
             raise ValueError("""Label matrix must have int-type elements, 
                 but elements have type %s""" % element_type)
 
