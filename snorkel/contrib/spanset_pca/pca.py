@@ -871,7 +871,7 @@ class PCA(TFNoiseAwareModel):
         train_loader = data_utils.DataLoader(train_data_set, batch_size=self.batch_size, shuffle=True)
 
         X_dev, Y_dev = merge_to_spansets_dev(X_dev, Y_dev)
-        max_len_spanset = max(len(spanset) for spanset in X_train)
+        max_len_spanset = max(len(spanset) for spanset in X_dev)
         new_X_dev = None
         for i in range(len(X_train)):
             spanset = X_train[i]
