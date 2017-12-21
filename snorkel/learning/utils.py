@@ -319,12 +319,16 @@ class MentionScorer(Scorer):
             candidates
         :param display: show calibration plots?
         """
+        already_predicted = kwargs.get('already_predicted', False)
         test_label_array = []
         counts = Counts()
 
         # Get predictions
-        cardinality = self._get_cardinality(test_marginals)
-        test_pred = (test_marginals.argmax(axis=1) + 1) % cardinality
+        if already_predicted:
+            test_pred = test_marginals
+        else:
+            cardinality = self._get_cardinality(test_marginals)
+            test_pred = (test_marginals.argmax(axis=1) + 1) % cardinality
 
         candidates = [(i, candidate) for i, candidate in enumerate(self.test_candidates)]
         candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start))
@@ -385,30 +389,6 @@ class MentionScorer(Scorer):
                 calibration_plots(train_marginals, test_marginals,
                                   np.asarray(test_label_array))
 
-        # Bucket the candidates for error analysis
-        # for i, candidate in enumerate(self.test_candidates):
-        #     # Handle either a LabelMatrix or else assume test_labels array is in
-        #     # correct order i.e. same order as test_candidates
-        #     try:
-        #         test_label_index = self.test_labels.get_row_index(candidate)
-        #         test_label = self.test_labels[test_label_index, 0]
-        #     except AttributeError:
-        #         test_label = self.test_labels[i]
-        #     test_label_array.append(test_label)
-        #     if test_label != 0:
-        #         if test_pred[i] == test_label:
-        #             correct.add(candidate)
-        #         else:
-        #             incorrect.add(candidate)
-        # if display:
-        #     nc, ni = len(correct), len(incorrect)
-        #     print("Accuracy:", nc / float(nc + ni))
-        #
-        #     # If gold candidate set is provided calculate recall-adjusted scores
-        #     if self.gold_candidate_set is not None:
-        #         gold_missed = [c for c in self.gold_candidate_set
-        #                        if c not in self.test_candidates]
-        #         print("Coverage:", (nc + ni) / (nc + ni + len(gold_missed)))
         return scores
 
     def summary_score(self, test_marginals, **kwargs):

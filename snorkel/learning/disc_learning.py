@@ -248,7 +248,7 @@ class TFNoiseAwareModel(Classifier):
         if dev_ckpt and X_dev is not None and verbose and dev_score_opt > 0:
             self.load(save_dir=save_dir)
 
-    def marginals(self, X, batch_size=None):
+    def marginals(self, X, batch_size=None, **kwargs):
         """
         Compute the marginals for the given candidates X.
         Split into batches to avoid OOM errors, then call _marginals_batch;
