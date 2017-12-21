@@ -584,7 +584,9 @@ class PCA(TFNoiseAwareModel):
 
         if self.host_device in self.gpu:
             output1 = loss.forward(marginal_y.cuda(), y)
-            output2 = spanset_loss.forward(column_y.cuda(), y_pick)
+            output2 = Variable(torch.FloatTensor([0])).cuda()
+            for i in range(column_y.shape[0]):
+                output2 += spanset_loss.forward(column_y[i].cuda(), y_pick[:, i])
         else:
             output1 = loss.forward(marginal_y, y)
             output2 = Variable(torch.FloatTensor([0]))
