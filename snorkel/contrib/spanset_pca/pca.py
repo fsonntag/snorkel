@@ -45,22 +45,18 @@ class MultiOutputForward(nn.Module):
 
     def forward(self, x):
         marginal_out = self.linear(x)
-        # marginal_out[marginal_out == 0.] = -1
-        mask = marginal_out == 0.
-        marginal_out[mask.detach()] = -1.
+        marginal_out[(marginal_out == 0.).detach()] = -1.
         max_values, max_columns = torch.max(marginal_out, dim=1)
 
         for i in range(marginal_out.size(2) - 1):
-            max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.shape[0])), max_columns[:, i]],
+            max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
                                                  dim=1)
             row_is_not_max = max_rows != i
-            # row_is_not_max = row_is_not_max[:, i]
             marginal_out[:, -1, i] = row_is_not_max
             # max_out_columns =
-        mask = marginal_out == -1.
-        marginal_out[mask.detach()] = 0
+        marginal_out[(marginal_out == -1.).detach()] = 0
         max_out_columns = Variable(
-            torch.zeros((marginal_out.size(2) - 1, marginal_out.shape[0], marginal_out.shape[1])))
+            torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
         for i in range(marginal_out.size(2) - 1):
             max_out_columns[i] = marginal_out[:, :, i]
 
@@ -585,12 +581,13 @@ class PCA(TFNoiseAwareModel):
         if self.host_device in self.gpu:
             output1 = loss.forward(marginal_y.cuda(), y)
             output2 = Variable(torch.cuda.FloatTensor([0])).cuda()
-            for i in range(column_y.shape[0]):
-                output2 += spanset_loss.forward(column_y[i].cuda(), y_pick[:, i])
+            column_y = column_y.cuda()
+            for i in range(column_y.size(0)):
+                output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
         else:
             output1 = loss.forward(marginal_y, y)
             output2 = Variable(torch.FloatTensor([0]))
-            for i in range(column_y.shape[0]):
+            for i in range(column_y.size(0)):
                 output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
 
         output = output1 + output2
@@ -611,8 +608,8 @@ class PCA(TFNoiseAwareModel):
         marginal_y, column_y = model.forward(x)
         sigmoid = nn.Sigmoid()
         if self.host_device in self.gpu:
-            marginal_y = sigmoid(marginal_y).data.numpy()
-            column_y = sigmoid(column_y).data.numpy()
+            marginal_y = sigmoid(marginal_y).data.cpu().numpy()
+            column_y = sigmoid(column_y).data.cpu().numpy()
         else:
             marginal_y = sigmoid(marginal_y).data.numpy()
             column_y = sigmoid(column_y).data.numpy()
