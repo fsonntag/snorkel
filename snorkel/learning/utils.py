@@ -327,6 +327,7 @@ class MentionScorer(Scorer):
         if already_predicted:
             test_pred = test_marginals
         else:
+            test_marginals[:, -1] += 1e-05
             cardinality = self._get_cardinality(test_marginals)
             test_pred = (test_marginals.argmax(axis=1) + 1) % cardinality
 
