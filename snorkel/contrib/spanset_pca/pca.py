@@ -54,8 +54,12 @@ class MultiOutputForward(nn.Module):
             row_is_not_max = (max_rows != i) * 100.
             marginal_out[:, -1, i] = row_is_not_max
         marginal_out[(marginal_out == -100.).detach()] = 0
+
         max_out_columns = Variable(
             torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
+        if next(self.parameters()).is_cuda:
+            max_out_columns = max_out_columns.cuda()
+
         for i in range(marginal_out.size(2) - 1):
             max_out_columns[i] = marginal_out[:, :, i]
 
