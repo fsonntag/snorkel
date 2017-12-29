@@ -1,22 +1,21 @@
+import codecs
+import glob
+import itertools
 import os
 import re
-import sys
-import glob
-import codecs
 import shutil
 import signal
-import zipfile
-import tarfile
-import itertools
 import subprocess
-
-import pickle
+import sys
+import tarfile
+import zipfile
+from collections import defaultdict
 from pathlib import Path
 
-from sqlalchemy import and_
-from .utils import download
-from collections import defaultdict
 from IPython.display import IFrame, display, HTML
+from sqlalchemy import and_
+
+from .utils import download
 from ...models import Span, Candidate, Document, Sentence, TemporarySpan, GoldLabel, GoldLabelKey
 
 
@@ -269,17 +268,23 @@ class BratAnnotator(object):
                                 x[0] for x in enumerate(char_offsets) if x[1] > span_entry.char_end) - 1
                             last_token = sentence.words[last_word_index]
                         if not span_entry.get_span().endswith(last_token):
-                            missed.append((span, span_entry.get_span(), span_entry.meta['type'], 'missed_tokenized', ''))
+                            missed.append(
+                                (span, span_entry.get_span(), span_entry.meta['type'], 'missed_tokenized', ''))
                         else:
-                            missed.append((span, span_entry.get_span(), span_entry.meta['type'], 'missed_candidate', span_entry.get_attrib_span('pos_tags')))
+                            missed.append((span, span_entry.get_span(), span_entry.meta['type'], 'missed_candidate',
+                                           span_entry.get_attrib_span('pos_tags')))
 
-            for c in candidates[:1000]:
-                false_positives.append((c[0].get_stable_id(), c[0].get_span(), c[0].get_attrib_span('pos_tags')))
+            for c in candidates:
+                if c[0].get_stable_id() not in brat_stable_ids:
+                    false_positives.append((c[0].get_stable_id(), c[0].get_span(), c[0].get_attrib_span('pos_tags')))
+
+                if len(false_positives) >= 1000:
+                    break
 
         out_path.mkdir(exist_ok=True)
-        with open(out_path/ f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
+        with open(out_path / f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
             file.writelines(['\t'.join(s) + '\n' for s in missed])
-        with open(out_path/ f'fp_{self.candidate_class.__name__}.tsv', 'w') as file:
+        with open(out_path / f'fp_{self.candidate_class.__name__}.tsv', 'w') as file:
             file.writelines(['\t'.join(s) + '\n' for s in false_positives])
         n, N = len(mapped_cands), len(missed) + len(mapped_cands)
         p = 0 if N == 0 else len(mapped_cands) / float(N)
@@ -358,7 +363,8 @@ class BratAnnotator(object):
         :param annotator_name:
         :return:
         """
-        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, binary, symmetric_relations, out_path=Path('brat-out'))
+        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, binary, symmetric_relations,
+                                               out_path=Path('brat-out'))
 
         for c, type in mapped_cands:
             if categorical:
