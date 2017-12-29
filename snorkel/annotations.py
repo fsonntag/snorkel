@@ -4,6 +4,8 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 from builtins import *
+from collections import Counter
+from pathlib import Path
 
 import numpy as np
 import scipy.sparse as sparse
@@ -13,7 +15,7 @@ from sqlalchemy.sql import bindparam, select
 from .features import get_span_feats
 from .models import (
     GoldLabel, GoldLabelKey, Label, LabelKey, Feature, FeatureKey, Candidate,
-    Marginal
+    Marginal, FalseLabel
 )
 from .models.meta import new_sessionmaker
 from .udf import UDF, UDFRunner
@@ -24,8 +26,7 @@ from .utils import (
     matrix_tp,
     matrix_fp,
     matrix_fn,
-    matrix_tn
-)
+    matrix_tn)
 
 
 class csr_AnnotationMatrix(sparse.csr_matrix):
@@ -143,11 +144,25 @@ try:
                 d['FN'] = Series(data=fn, index=lf_names)
                 d['TN'] = Series(data=tn, index=lf_names)
 
+                write_fp(self, ls, session, lf_names)
+                write_fn(self, ls, session, lf_names)
+
+                write_missed(self, ls, session)
+
             if est_accs is not None:
                 col_names.append('Learned Acc.')
                 d['Learned Acc.'] = est_accs
                 d['Learned Acc.'].index = lf_names
             return DataFrame(data=d, index=lf_names)[col_names]
+
+        def store_falses(self, session, labels, clean=True):
+            if clean == True:
+                session.query(FalseLabel).delete()
+            lf_names = [self.get_key(session, j).name for j in range(self.shape[1])]
+            ls = np.ravel(labels.todense() if sparse.issparse(labels) else labels)
+            store_fp(self, ls, session, lf_names)
+            store_fn(self, ls, session, lf_names)
+
 
 # This is a hack for getting the documentation to build...
 except:
@@ -543,10 +558,9 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
     except:
         cardinality = X[0].cardinality
 
-
     # Load marginal tuples from db
     marginal_tuples_query = session.query(Marginal.candidate_id, Marginal.value,
-                                    Marginal.probability) \
+                                          Marginal.probability) \
         .filter(Marginal.candidate_id == cids_sub_query.c.id) \
         .filter(Marginal.training == training)
 
@@ -591,3 +605,115 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
     else:
         marginals = np.ravel(marginals[:, 1])
     return marginals
+
+
+def write_fp(L, labels, session, lf_names):
+    out_path = Path('lf_stats')
+    out_path.mkdir(exist_ok=True)
+    for i in range(L.shape[1]):
+        candidates = get_fp_candidates(L, labels, i, session)
+        if candidates:
+            with open(out_path / f'fp_{lf_names[i]}.tsv', 'w') as file:
+                file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c in candidates])
+            candidate_names = [c[0].get_span() for c in candidates]
+            name_counts = Counter(candidate_names)
+            with open(out_path / f'fp_counts_{lf_names[i]}.tsv', 'w') as file:
+                file.writelines([f'{name}\t{count}' + '\n' for name, count in name_counts.most_common()])
+
+
+def store_fp(L, labels, session, lf_names):
+    for i in range(L.shape[1]):
+        candidates = get_fp_candidates(L, labels, i, session)
+        candidate_names = [c[0].get_span() for c in candidates]
+        name_counts = Counter(candidate_names)
+        label_key = session.query(LabelKey).filter(LabelKey.name == lf_names[i]).one()
+        for name, count in name_counts.most_common():
+            label_false = FalseLabel(key=label_key, false_value=name, frequency=count, type='fp')
+            session.add(label_false)
+        session.commit()
+
+
+def write_fn(L, labels, session, lf_names):
+    out_path = Path('lf_stats')
+    out_path.mkdir(exist_ok=True)
+    for i in range(L.shape[1]):
+        candidates = get_fn_candidates(L, labels, i, session)
+        if candidates:
+            with open(out_path / f'fn_{lf_names[i]}.tsv', 'w') as file:
+                file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c in candidates])
+            candidate_names = [c[0].get_span() for c in candidates]
+            name_counts = Counter(candidate_names)
+            with open(out_path / f'fn_counts_{lf_names[i]}.tsv', 'w') as file:
+                file.writelines([f'{name}\t{count}' + '\n' for name, count in name_counts.most_common()])
+
+
+def write_missed(L, labels, session):
+    out_path = Path('lf_stats')
+    out_path.mkdir(exist_ok=True)
+    max_value = labels.max()
+    false_indices = [L.row_index[j] for j in np.where(labels == 0)[0]]
+    candidate_indices = []
+    for i in range(1, max_value + 1):
+        candidate_indices += [L.row_index[j] for j in np.where(labels == i)[0]]
+    false_candidates = set(session.query(Candidate).filter(Candidate.id.in_(false_indices)).all())
+    true_candidates = set(session.query(Candidate).filter(Candidate.id.in_(candidate_indices)).all())
+    true_candidate_names = {c[0].get_span() for c in true_candidates}
+
+    with open(out_path / 'potential_missed_annotations', 'w') as file:
+        for false_candidate in false_candidates:
+            if false_candidate[0].get_span() in true_candidate_names:
+                in_overlapping = False
+                overlapping_candidates = [candidate for candidate in true_candidates
+                                          if candidate[0].sentence_id == false_candidate[0].sentence_id
+                                          and candidate[0].char_start < false_candidate[0].char_end
+                                          and candidate[0].char_end > false_candidate[0].char_start]
+                for ov_candidate in overlapping_candidates:
+                    if ov_candidate in true_candidates:
+                        in_overlapping = True
+                        break
+                if not in_overlapping:
+                    file.write(f'{false_candidate[0].get_span()}\t{false_candidate[0].stable_id}\n')
+
+
+def store_fn(L, labels, session, lf_names):
+    for i in range(L.shape[1]):
+        candidates = get_fn_candidates(L, labels, i, session)
+        candidate_names = [c[0].get_span() for c in candidates]
+        name_counts = Counter(candidate_names)
+        label_key = session.query(LabelKey).filter(LabelKey.name == lf_names[i]).one()
+        for name, count in name_counts.most_common():
+            label_false = FalseLabel(key=label_key, false_value=name, frequency=count, type='fn')
+            session.add(label_false)
+        session.commit()
+
+
+def get_fp_candidates(L, labels, lf_idx, session):
+    label_max_value = labels.max()
+    all_fp_candidates = []
+    for pos_value in range(1, label_max_value + 1):
+        true_candidate_indices = [L.row_index[j] for j in np.where(labels == pos_value)[0]]
+        true_candidates = set(session.query(Candidate).filter(Candidate.id.in_(true_candidate_indices)).all())
+
+        positives = (L[:, lf_idx] == pos_value).todense()
+        positive_values = np.multiply(L[:, lf_idx].toarray(), positives)
+        fp_indices = np.where(((positive_values > 0) & (positive_values != labels.reshape(-1, 1))) == True)[0]
+        fp_candidate_ids = [L.row_index[fp_index] for fp_index in fp_indices]
+        fp_candidates = session.query(Candidate).filter(Candidate.id.in_(fp_candidate_ids)).all()
+        for fp_candidate in fp_candidates:
+            overlapping_candidates = [candidate for candidate in true_candidates
+                                      if candidate[0].sentence_id == fp_candidate[0].sentence_id
+                                      and candidate[0].char_start < fp_candidate[0].char_end
+                                      and candidate[0].char_end > fp_candidate[0].char_start]
+            if not overlapping_candidates:
+                all_fp_candidates.append(fp_candidate)
+
+    return all_fp_candidates
+
+
+def get_fn_candidates(L, labels, i, session):
+    false_value = int(L.max())
+    negatives = np.invert((L[:, i] == false_value).toarray()).astype(int)
+    fn_indices = np.where((negatives == 0) & (negatives != labels.reshape(-1, 1)))[0]
+    candidate_ids = [L.row_index[fp_index] for fp_index in fn_indices]
+    candidates = session.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
+    return candidates

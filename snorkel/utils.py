@@ -98,31 +98,32 @@ def matrix_conflicts(L):
 
 
 def matrix_tp(L, labels):
-    max_value = L.max()
+    false_value = int(L.max())
     return np.ravel(np.sum([[
         np.sum(np.ravel((L[:, j] == i).todense()) * (labels == i)) for j in range(L.shape[1])
-    ] for i in range(1, max_value + 1)], axis=0))
+    ] for i in range(1, false_value)], axis=0))
 
 
 def matrix_fp(L, labels):
-    max_value = L.max()
-    all_values = set(range(max_value + 1))
+    false_value = int(L.max())
+    all_values = set(range(false_value + 1))
     return np.ravel(np.sum([np.sum([[
         np.sum(np.ravel((L[:, j] == k).todense()) * (labels == i)) for j in range(L.shape[1])
-    ] for i in all_values - {k}], axis=0) for k in range(1, max_value + 1)], axis=0))
+    ] for i in all_values - {k}], axis=0) for k in range(1, false_value)], axis=0))
 
 
 def matrix_tn(L, labels):
+    false_value = int(L.max())
     return np.ravel([
-        np.sum(np.ravel((L[:, j] == 0).todense()) * (labels == 0)) for j in range(L.shape[1])
+        np.sum(np.ravel((L[:, j] == false_value).todense()) * (labels == 0)) for j in range(L.shape[1])
     ])
 
 
 def matrix_fn(L, labels):
-    max_value = L.max()
+    false_value = int(L.max())
     return np.ravel(np.sum([[
-        np.sum(np.ravel((L[:, j] == 0).todense()) * (labels == 2)) for j in range(L.shape[1])
-    ] for i in range(1, max_value + 1)], axis=0))
+        np.sum(np.ravel((L[:, j] == false_value).todense()) * (labels == i)) for j in range(L.shape[1])
+    ] for i in range(1, false_value)], axis=0))
 
 
 def get_as_dict(x):

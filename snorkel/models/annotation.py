@@ -12,6 +12,7 @@ class AnnotationKeyMixin(object):
     An AnnotationKey is the unique name associated with a set of Annotations, corresponding e.g. to a single
     labeling or feature function.  An AnnotationKey may have an associated weight (Parameter) associated with it.
     """
+
     @declared_attr
     def __tablename__(cls):
         return camel_to_under(cls.__name__)
@@ -49,7 +50,7 @@ class FeatureKey(AnnotationKeyMixin, SnorkelBase):
 
 
 class PredictionKey(AnnotationKeyMixin, SnorkelBase):
-    pass    
+    pass
 
 
 class AnnotationMixin(object):
@@ -73,6 +74,7 @@ class AnnotationMixin(object):
 
     The annotation class should include a Column attribute named value.
     """
+
     @declared_attr
     def __tablename__(cls):
         return camel_to_under(cls.__name__)
@@ -80,11 +82,13 @@ class AnnotationMixin(object):
     # The key is the "name" or "type" of the Annotation- e.g. the name of a feature, or of a human annotator
     @declared_attr
     def key_id(cls):
-        return Column('key_id', Integer, ForeignKey('%s_key.id' % cls.__tablename__, ondelete='CASCADE'), primary_key=True)
+        return Column('key_id', Integer, ForeignKey('%s_key.id' % cls.__tablename__, ondelete='CASCADE'),
+                      primary_key=True)
 
     @declared_attr
     def key(cls):
-        return relationship('%sKey' % cls.__name__, backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan'))
+        return relationship('%sKey' % cls.__name__,
+                            backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan'))
 
     # Every annotation is with respect to a candidate
     @declared_attr
@@ -93,7 +97,9 @@ class AnnotationMixin(object):
 
     @declared_attr
     def candidate(cls):
-        return relationship('Candidate', backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan', cascade_backrefs=False),
+        return relationship('Candidate',
+                            backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan',
+                                            cascade_backrefs=False),
                             cascade_backrefs=False)
 
     def __repr__(self):
@@ -114,6 +120,36 @@ class Label(AnnotationMixin, SnorkelBase):
     A Label's annotation key identifies the labeling function that provided the Label.
     """
     value = Column(Integer, nullable=False)
+
+
+class FalseLabel(SnorkelBase):
+
+    @declared_attr
+    def id(cls):
+        return Column(Integer, primary_key=True)
+
+    @declared_attr
+    def __tablename__(cls):
+        return camel_to_under(cls.__name__)
+
+    # The key is the "name" or "type" of the Annotation- e.g. the name of a feature, or of a human annotator
+    @declared_attr
+    def key_id(cls):
+        return Column('key_id', Integer, ForeignKey('label_key.id', ondelete='CASCADE'),
+                      primary_key=False)
+
+    @declared_attr
+    def key(cls):
+        return relationship('LabelKey',
+                            backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan'))
+
+    false_value = Column(String, nullable=False)
+    frequency = Column(Integer, nullable=False)
+    type = Column(String, nullable=False)
+
+    def __repr__(self):
+        return self.__class__.__name__ + " (" + str(self.key.name) + " = " + str(self.false_value) + "(" + str(
+            self.frequency) + "))"
 
 
 class Feature(AnnotationMixin, SnorkelBase):
@@ -141,11 +177,11 @@ class StableLabel(SnorkelBase):
     A special secondary table for preserving labels created by *human annotators* (e.g. in the Viewer)
     in a stable format that does not cascade, and is independent of the Candidate ids.
     """
-    __tablename__  = 'stable_label'
+    __tablename__ = 'stable_label'
     context_stable_ids = Column(String, primary_key=True)  # ~~ delimited list of the context stable ids
-    annotator_name     = Column(String, primary_key=True)
-    split              = Column(Integer, default=0)
-    value              = Column(Integer, nullable=False)
+    annotator_name = Column(String, primary_key=True)
+    split = Column(Integer, default=0)
+    value = Column(Integer, nullable=False)
 
     def __repr__(self):
         return "%s (%s : %s)" % (self.__class__.__name__, self.annotator_name, self.value)

@@ -31,7 +31,7 @@ from .context import Context, Document, Sentence, TemporarySpan, Span, NoisyTagg
 from .context import construct_stable_id, split_stable_id
 from .candidate import Candidate, candidate_subclass, Marginal
 from .annotation import (
-    Feature, FeatureKey, Label, LabelKey, GoldLabel, GoldLabelKey, StableLabel,
+    Feature, FeatureKey, Label, LabelKey, FalseLabel, GoldLabel, GoldLabelKey, StableLabel,
     Prediction, PredictionKey
 )
 from .tag import SequenceTag
