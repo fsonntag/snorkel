@@ -104,6 +104,9 @@ class LabelBalancer(object):
         row_n = []
         cardinality = self.y.shape[1]
         max_indices = (self.y.argmax(axis=1) + 1) % cardinality
+        diffs = self.y.max(axis=1) - self.y.min(axis=1)
+        balanced_idxs = np.where(diffs < 1e-6)[0]
+        max_indices[balanced_idxs] = -1
         for i in range(cardinality):
             curr_column_pos = np.where(max_indices == i)[0]
             if len(curr_column_pos) == 0:

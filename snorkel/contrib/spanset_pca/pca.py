@@ -823,10 +823,10 @@ class PCA(TFNoiseAwareModel):
             # In categorical setting, just remove unlabeled
             diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
             balanced_idxs = np.where(diffs < 1e-6)[0]
-            uncat_improvement = 0.05
-            for i in range(self.cardinality - 1):
-                Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
-            Y_train[balanced_idxs, -1] += uncat_improvement
+            # uncat_improvement = 0.05
+            # for i in range(self.cardinality - 1):
+            #     Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
+            # Y_train[balanced_idxs, -1] += uncat_improvement
             if self.rebalance:
                 train_idxs = LabelBalancer(Y_train, categorical=True) \
                     .rebalance_categorical_train_idxs(rebalance=self.rebalance, rand_state=self.rand_state)
