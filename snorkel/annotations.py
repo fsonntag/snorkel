@@ -564,10 +564,9 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
         .filter(Marginal.candidate_id == cids_sub_query.c.id) \
         .filter(Marginal.training == training)
 
-    if marginal_limit:
-        if marginal_limit:
-            marginal_tuples_query = marginal_tuples_query.limit(marginal_limit * (cardinality - 1))
     marginal_tuples = marginal_tuples_query.all()
+    if marginal_limit:
+        marginal_tuples = sorted(marginal_tuples, key=lambda x: (x[0], x[1]))[:marginal_limit * (cardinality - 1)]
 
     # If an AnnotationMatrix or list of candidates X is provided, we make sure
     # that the returned marginals are collated with X.
@@ -650,7 +649,7 @@ def write_fn(L, labels, session, lf_names):
 def write_missed(L, labels, session):
     out_path = Path('lf_stats')
     out_path.mkdir(exist_ok=True)
-    max_value = labels.max()
+    max_value = int(labels.max())
     false_indices = [L.row_index[j] for j in np.where(labels == 0)[0]]
     candidate_indices = []
     for i in range(1, max_value + 1):
@@ -688,7 +687,7 @@ def store_fn(L, labels, session, lf_names):
 
 
 def get_fp_candidates(L, labels, lf_idx, session):
-    label_max_value = labels.max()
+    label_max_value = int(labels.max())
     all_fp_candidates = []
     for pos_value in range(1, label_max_value + 1):
         true_candidate_indices = [L.row_index[j] for j in np.where(labels == pos_value)[0]]

@@ -2,6 +2,7 @@ import collections
 import os
 import warnings
 from time import time
+import math
 
 import numpy as np
 import scipy
@@ -42,28 +43,31 @@ class MultiOutputForward(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.linear = nn.Linear(input_dim, output_dim, bias=False)
+        nn.init.xavier_uniform(self.linear.weight, gain=math.sqrt(2.0))
 
     def forward(self, x):
         marginal_out = self.linear(x)
-        marginal_out[(marginal_out == 0.).detach()] = -100.
-        max_values, max_columns = torch.max(marginal_out, dim=1)
 
-        for i in range(marginal_out.size(2) - 1):
-            max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
-                                                 dim=1)
-            row_is_not_max = (max_rows != i) * 100.
-            marginal_out[:, -1, i] = row_is_not_max
-        marginal_out[(marginal_out == -100.).detach()] = 0
+        # max_out_columns = Variable(
+        #     torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
+        # if next(self.parameters()).is_cuda:
+        #     max_out_columns = max_out_columns.cuda()
+        #
+        # for i in range(marginal_out.size(2) - 1):
+        #     max_out_columns[i] = marginal_out[:, :, i]
+        #
+        # marginal_out[(marginal_out == 0.).detach()] = -100.
+        # max_values, max_columns = torch.max(marginal_out, dim=1)
+        #
+        # for i in range(marginal_out.size(2) - 1):
+        #     max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
+        #                                          dim=1)
+        #     row_is_not_max = (max_rows != i) * 100.
+        #     max_out_columns[i, :, -1] = row_is_not_max
+        # marginal_out[(marginal_out == -100.).detach()] = 0
 
-        max_out_columns = Variable(
-            torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
-        if next(self.parameters()).is_cuda:
-            max_out_columns = max_out_columns.cuda()
-
-        for i in range(marginal_out.size(2) - 1):
-            max_out_columns[i] = marginal_out[:, :, i]
-
-        return marginal_out, max_out_columns
+        # return marginal_out, max_out_columns
+        return marginal_out
 
 
 class PCA(TFNoiseAwareModel):
@@ -579,21 +583,23 @@ class PCA(TFNoiseAwareModel):
         optimizer.zero_grad()
 
         # Forward
-        marginal_y, column_y = model.forward(x)
+        # marginal_y, column_y = model.forward(x)
+        marginal_y = model.forward(x)
 
         if self.host_device in self.gpu:
             output1 = loss.forward(marginal_y.cuda(), y)
             output2 = Variable(torch.cuda.FloatTensor([0])).cuda()
-            column_y = column_y.cuda()
-            for i in range(column_y.size(0)):
-                output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
+            # column_y = column_y.cuda()
+            # for i in range(column_y.size(0)):
+            #     output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
         else:
             output1 = loss.forward(marginal_y, y)
-            output2 = Variable(torch.FloatTensor([0]))
-            for i in range(column_y.size(0)):
-                output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
+            # output2 = Variable(torch.FloatTensor([0]))
+            # for i in range(column_y.size(0)):
+            #     output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
 
-        output = output1 + output2
+        # output = output1 + output2
+        output = output1
 
         # Backward
         output.backward()
@@ -608,15 +614,38 @@ class PCA(TFNoiseAwareModel):
             x = Variable(x_val, requires_grad=False).cuda()
         else:
             x = Variable(x_val, requires_grad=False)
-        marginal_y, column_y = model.forward(x)
+        # marginal_y, column_y = model.forward(x)
+        marginal_out = model.forward(x)
+
+        max_out_columns = Variable(
+            torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
+        if self.host_device in self.gpu:
+            max_out_columns = max_out_columns.cuda()
+
+        for i in range(marginal_out.size(2) - 1):
+            max_out_columns[i] = marginal_out[:, :, i]
+
+        marginal_out[(marginal_out == 0.).detach()] = -100.
+        max_values, max_columns = torch.max(marginal_out, dim=1)
+
+        for i in range(marginal_out.size(2) - 1):
+            max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
+                                                 dim=1)
+            row_is_not_max = (max_rows != i) * 100.
+            max_out_columns[i, :, -1] = row_is_not_max
+        marginal_out[(marginal_out == -100.).detach()] = 0
+
+
+
         sigmoid = nn.Sigmoid()
         if self.host_device in self.gpu:
-            marginal_y = sigmoid(marginal_y).data.cpu().numpy()
-            column_y = sigmoid(column_y).data.cpu().numpy()
+            marginal_out = sigmoid(marginal_out).data.cpu().numpy()
+            column_y = sigmoid(max_out_columns).data.cpu().numpy()
         else:
-            marginal_y = sigmoid(marginal_y).data.numpy()
-            column_y = sigmoid(column_y).data.numpy()
-        return marginal_y, column_y
+            marginal_out = sigmoid(marginal_out).data.numpy()
+            column_y = sigmoid(max_out_columns).data.numpy()
+        return marginal_out, column_y
+        # return marginal_y
 
     def _init_kwargs(self, **kwargs):
 
@@ -749,6 +778,9 @@ class PCA(TFNoiseAwareModel):
         Perform preprocessing of data, construct dataset-specific model, then
         train.
         """
+
+        X_dev = X_dev[:1000]
+        Y_dev = Y_dev[:1000]
 
         print_train_scores = kwargs.get('print_train_scores', False)
         self._init_kwargs(**kwargs)
@@ -921,6 +953,7 @@ class PCA(TFNoiseAwareModel):
 
         for idx in range(self.n_epochs):
             cost = 0.
+            # dev_scores = self.error_analysis(session, X_dev, new_X_dev, new_Y_dev, batch_size=self.batch_size)
             for x, y, y_pick in train_loader:
                 cost += self.train_model(self.model, loss, spanset_loss, optimizer, x, y.float(), y_pick)
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
@@ -963,6 +996,30 @@ class PCA(TFNoiseAwareModel):
         _, column_y = self.predict(self.model, X)
 
         return np.transpose(column_y, (1, 0, 2))
+        # marginal_y = self.predict(self.model, X)
+        # return marginal_y
+
+        # max_out_columns = np.zeros((marginal_y.shape[2] - 1, marginal_y.shape[0], marginal_y.shape[1]))
+        # # if next(self.parameters()).is_cuda:
+        # #     max_out_columns = max_out_columns.cuda()
+        # #
+        # for i in range(marginal_y.shape[2] - 1):
+        #     max_out_columns[i] = marginal_y[:, :, i]
+        # #
+        # marginal_y[marginal_y == 0.] = -100.
+        # max_values, max_columns = np.max(marginal_y, axis=1)
+        # #
+        # # for i in range(marginal_y.size(2) - 1):
+        # #     max_row_values, max_rows = torch.max(marginal_y[list(range(marginal_y.size(0))), max_columns[:, i].data],
+        # #                                          dim=1)
+        # #     row_is_not_max = (max_rows != i) * 100.
+        # #     max_out_columns[i, :, -1] = row_is_not_max
+        # # marginal_out[(marginal_y == -100.).detach()] = 0
+        #
+        # # return marginal_out, max_out_columns
+        #
+        #
+        # return marginal_y
 
     def embed(self, X):
         new_X_train = None
@@ -1046,6 +1103,36 @@ class PCA(TFNoiseAwareModel):
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))
 
+    def error_analysis_from_untransformed(self, session, X_test, Y_test, display=True, batch_size=None,
+                                          scorer=MentionScorer, **kwargs):
+
+        X_test = self._preprocess_data_combination(X_test)
+
+        X_test, Y_test = merge_to_spansets_dev(X_test, Y_test)
+        max_len_spanset = max(len(spanset) for spanset in X_test)
+        new_X_test = None
+        for i in range(len(X_test)):
+            spanset = X_test[i]
+            for j in range(len(spanset)):
+                feature = self.gen_feature(spanset[j][1])
+                if new_X_test is None:
+                    new_X_test = torch.zeros((len(X_test), max_len_spanset + 1, feature.size(1)))
+                new_X_test[i, j] = feature
+
+        new_Y_test = sparse.lil_matrix((len(Y_test), max_len_spanset), dtype=np.int)
+        for i in range(len(Y_test)):
+            annotations = Y_test[i]
+            new_Y_test[i, :annotations.shape[1]] = annotations
+
+        self.error_analysis(session=session,
+                            X_test=X_test,
+                            X_test_transformed=new_X_test,
+                            Y_test=new_Y_test,
+                            display=display,
+                            batch_size=batch_size,
+                            scorer=scorer,
+                            kwargs=kwargs)
+
     def error_analysis(self, session, X_test, X_test_transformed, Y_test, display=True, batch_size=None,
                        scorer=MentionScorer, **kwargs):
         """
@@ -1079,6 +1166,7 @@ class PCA(TFNoiseAwareModel):
             current_predictions = [0] * spanset_length
             true_y = [0] * spanset_length
             max_indices = np.argmax(column_marginals[i, :], axis=1)
+
             for j, max_index in enumerate(max_indices):
                 if max_index < spanset_length:
                     current_predictions[max_index] = j + 1
