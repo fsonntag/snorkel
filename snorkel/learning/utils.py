@@ -1,9 +1,10 @@
 import inspect
 import os
 import time
-from collections import defaultdict
+from collections import defaultdict, Counter
 from itertools import product
 from multiprocessing import Process, JoinableQueue
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -376,6 +377,8 @@ class MentionScorer(Scorer):
                             counts.fn_ov.add(candidate)
                             counts.t_fn_ov[type].add(candidate)
 
+        self.write_counts(counts)
+
         # Calculate scores unadjusted for TPs not in our candidate set
         scores = scores_from_counts(counts, "Scores (Un-adjusted)", weighted=True, print_scores=display)
         if display:
@@ -394,6 +397,20 @@ class MentionScorer(Scorer):
                                   np.asarray(test_label_array))
 
         return scores
+
+    def write_counts(self, counts: Counts):
+        out_path = Path('classifier_stats')
+        out_path.mkdir(exist_ok=True)
+        for type_dict, count_type in [(counts.t_fp, 'fp'), (counts.t_fn, 'fn')]:
+            for type, candidates in type_dict.items():
+                if candidates:
+                    with open(out_path / f'{type}_{count_type}.tsv', 'w') as file:
+                        file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c in candidates])
+                    candidate_names = [c[0].get_span() for c in candidates]
+                    name_counts = Counter(candidate_names)
+                    with open(out_path / f'{type}_{count_type}_counts.tsv', 'w') as file:
+                        file.writelines([f'{name}\t{count}' + '\n' for name, count in name_counts.most_common()])
+
 
     def summary_score(self, test_marginals, **kwargs):
         """
