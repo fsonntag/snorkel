@@ -60,7 +60,7 @@ class DocPreprocessor(object):
         if os.path.isfile(path):
             fpaths = [path]
         elif os.path.isdir(path):
-            fpaths = [os.path.join(path, f) for f in os.listdir(path)]
+            fpaths = sorted([os.path.join(path, f) for f in os.listdir(path)])
         else:
             fpaths = glob.glob(path)
         if len(fpaths) > 0:
