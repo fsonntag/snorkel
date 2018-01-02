@@ -213,6 +213,7 @@ class BratAnnotator(object):
         # load Document objects from session
         doc_names = [doc_name for doc_name in annotations if annotations[doc_name]]
         documents = session.query(Document).filter(Document.name.in_(doc_names)).all()
+        documents = [doc for doc in documents if 'file_name' in doc.meta]
         documents = {doc.name: doc for doc in documents}
 
         # TODO: make faster!!
