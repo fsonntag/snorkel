@@ -1,14 +1,15 @@
 import numpy as np
-import torch
 import scipy.sparse as sparse
+import torch
 
 
 class SymbolTable(object):
     """Wrapper for dict to encode unknown symbols"""
+
     def __init__(self, starting_symbol=2, unknown_symbol=1):
-        self.s       = starting_symbol
+        self.s = starting_symbol
         self.unknown = unknown_symbol
-        self.d       = dict()
+        self.d = dict()
 
     def get(self, w):
         if w not in self.d:
@@ -53,7 +54,7 @@ def merge_to_spansets(candidates, marginals):
         else:
             last_candidate = current_spanset[-1][1]
             if last_candidate[-1][0].sentence_id == candidate[-1][0].sentence_id \
-                and last_candidate[-1][0].char_end > candidate[-1][0].char_start:
+                    and last_candidate[-1][0].char_end > candidate[-1][0].char_start:
                 current_spanset.append((original_i, candidate))
             else:
                 current_marginals = marginals_for_spanset(current_spanset, marginals)
@@ -76,6 +77,7 @@ def merge_to_spansets(candidates, marginals):
 
     return candidate_spansets, marginal_spansets, marginal_picks, marginal_picks_ext
 
+
 def picks_from_marginals(marginals, max_spanset_size):
     picks = np.zeros(marginals.shape[1] - 1, dtype=int)
     for i in range(marginals.shape[1] - 1):
@@ -85,6 +87,7 @@ def picks_from_marginals(marginals, max_spanset_size):
         else:
             picks[i] = max_spanset_size
     return picks
+
 
 def merge_to_spansets_dev(X_dev, Y_dev):
     candidate_spansets = []
@@ -102,15 +105,25 @@ def merge_to_spansets_dev(X_dev, Y_dev):
                     and last_candidate[-1][0].char_end > candidate[-1][0].char_start:
                 current_spanset.append((original_i, candidate))
             else:
-                current_y = sparse.lil_matrix(Y_dev[[s[0] for s in current_spanset]]).T
+                indices = [Y_dev.candidate_index[s[1][-1].id] for s in current_spanset]
+                current_y = sparse.lil_matrix(Y_dev[indices]).T
                 spanset_y.append(current_y)
                 candidate_spansets.append(current_spanset)
                 current_spanset = [(original_i, candidate)]
     current_y = sparse.lil_matrix(Y_dev[[s[0] for s in current_spanset]]).T
     spanset_y.append(current_y)
     candidate_spansets.append(current_spanset)
+    check_spanset_lengths(candidate_spansets, spanset_y)
     return candidate_spansets, spanset_y
 
+
+def check_spanset_lengths(candidate_spansets, spanset_y):
+    with open('spanset_problems.tsv', 'w') as file:
+        for current_spanset, current_y in zip(candidate_spansets, spanset_y):
+            if len(np.where(current_y.toarray() == 1)[0]) > 1 \
+                    or len(np.where(current_y.toarray() == 2)[0]) > 1:
+                span_string = '\t'.join(s[1][-1][0].get_span() for s in current_spanset)
+                file.write(f'{current_y.toarray()}\t{span_string}\n')
 
 
 def merge_to_spansets_by_type(candidates, marginals):
@@ -132,7 +145,7 @@ def merge_to_spansets_by_type(candidates, marginals):
                 else:
                     last_candidate = current_spanset[-1][1]
                     if last_candidate[-1][0].sentence_id == candidate[-1][0].sentence_id \
-                        and last_candidate[-1][0].char_end > candidate[-1][0].char_start:
+                            and last_candidate[-1][0].char_end > candidate[-1][0].char_start:
                         current_spanset.append((original_i, candidate))
                     else:
                         current_marginals = marginals_for_spanset(current_spanset, marginals)
@@ -153,6 +166,7 @@ def merge_to_spansets_by_type(candidates, marginals):
         marginal_spansets.append(current_marginals)
         candidate_spansets.append(current_spanset)
     return candidate_spansets, marginal_spansets, marginal_picks
+
 
 def marginals_for_spanset(current_spanset, marginals):
     if not current_spanset:
