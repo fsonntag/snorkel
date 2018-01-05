@@ -953,30 +953,6 @@ class PCA(TFNoiseAwareModel):
         _, column_y = self.predict(self.model, X)
 
         return np.transpose(column_y, (1, 0, 2))
-        # marginal_y = self.predict(self.model, X)
-        # return marginal_y
-
-        # max_out_columns = np.zeros((marginal_y.shape[2] - 1, marginal_y.shape[0], marginal_y.shape[1]))
-        # # if next(self.parameters()).is_cuda:
-        # #     max_out_columns = max_out_columns.cuda()
-        # #
-        # for i in range(marginal_y.shape[2] - 1):
-        #     max_out_columns[i] = marginal_y[:, :, i]
-        # #
-        # marginal_y[marginal_y == 0.] = -100.
-        # max_values, max_columns = np.max(marginal_y, axis=1)
-        # #
-        # # for i in range(marginal_y.size(2) - 1):
-        # #     max_row_values, max_rows = torch.max(marginal_y[list(range(marginal_y.size(0))), max_columns[:, i].data],
-        # #                                          dim=1)
-        # #     row_is_not_max = (max_rows != i) * 100.
-        # #     max_out_columns[i, :, -1] = row_is_not_max
-        # # marginal_out[(marginal_y == -100.).detach()] = 0
-        #
-        # # return marginal_out, max_out_columns
-        #
-        #
-        # return marginal_y
 
     def embed(self, X):
         new_X_train = None
