@@ -47,26 +47,6 @@ class MultiOutputForward(nn.Module):
 
     def forward(self, x):
         marginal_out = self.linear(x)
-
-        # max_out_columns = Variable(
-        #     torch.zeros((marginal_out.size(2) - 1, marginal_out.size(0), marginal_out.size(1))))
-        # if next(self.parameters()).is_cuda:
-        #     max_out_columns = max_out_columns.cuda()
-        #
-        # for i in range(marginal_out.size(2) - 1):
-        #     max_out_columns[i] = marginal_out[:, :, i]
-        #
-        # marginal_out[(marginal_out == 0.).detach()] = -100.
-        # max_values, max_columns = torch.max(marginal_out, dim=1)
-        #
-        # for i in range(marginal_out.size(2) - 1):
-        #     max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
-        #                                          dim=1)
-        #     row_is_not_max = (max_rows != i) * 100.
-        #     max_out_columns[i, :, -1] = row_is_not_max
-        # marginal_out[(marginal_out == -100.).detach()] = 0
-
-        # return marginal_out, max_out_columns
         return marginal_out
 
 
@@ -583,22 +563,12 @@ class PCA(TFNoiseAwareModel):
         optimizer.zero_grad()
 
         # Forward
-        # marginal_y, column_y = model.forward(x)
         marginal_y = model.forward(x)
 
         if self.host_device in self.gpu:
             output1 = loss.forward(marginal_y.cuda(), y)
-            output2 = Variable(torch.cuda.FloatTensor([0])).cuda()
-            # column_y = column_y.cuda()
-            # for i in range(column_y.size(0)):
-            #     output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
         else:
             output1 = loss.forward(marginal_y, y)
-            # output2 = Variable(torch.FloatTensor([0]))
-            # for i in range(column_y.size(0)):
-            #     output2 += spanset_loss.forward(column_y[i], y_pick[:, i])
-
-        # output = output1 + output2
         output = output1
 
         # Backward
@@ -614,7 +584,7 @@ class PCA(TFNoiseAwareModel):
             x = Variable(x_val, requires_grad=False).cuda()
         else:
             x = Variable(x_val, requires_grad=False)
-        # marginal_y, column_y = model.forward(x)
+        
         marginal_out = model.forward(x)
 
         max_out_columns = Variable(
