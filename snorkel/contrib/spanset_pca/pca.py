@@ -584,7 +584,7 @@ class PCA(TFNoiseAwareModel):
             x = Variable(x_val, requires_grad=False).cuda()
         else:
             x = Variable(x_val, requires_grad=False)
-        
+
         marginal_out = model.forward(x)
 
         max_out_columns = Variable(
@@ -747,7 +747,6 @@ class PCA(TFNoiseAwareModel):
         Perform preprocessing of data, construct dataset-specific model, then
         train.
         """
-
 
         print_train_scores = kwargs.get('print_train_scores', False)
         self._init_kwargs(**kwargs)
