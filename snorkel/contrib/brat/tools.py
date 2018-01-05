@@ -1,17 +1,19 @@
+import codecs
+import glob
+import itertools
 import os
 import re
 import sys
-import glob
-import codecs
 from collections import defaultdict
 
-import itertools
-
-from ...parser import TextDocPreprocessor, CorpusParser
-from ...models import Candidate, StableLabel, Document, TemporarySpan, candidate_subclass, GoldLabel,\
-    NoisyTaggedSentence, EmbeddingNNInformation
-
+import numpy as np
+from scipy import sparse
 from tqdm import tqdm
+
+from ...annotations import load_marginals, load_label_matrix
+from ...models import Candidate, StableLabel, Document, TemporarySpan, candidate_subclass, GoldLabel, \
+    NoisyTaggedSentence
+from ...parser import TextDocPreprocessor, CorpusParser
 
 
 class BratProject(object):
@@ -118,21 +120,21 @@ class BratProject(object):
         documents = self.session.query(Document).all()
 
         gold_labels = {label.candidate_id: label for label in self.session.query(GoldLabel).all()}
-        gold_labels = {uid:label for uid, label in gold_labels.items()
-                      if (positive_only_labels and label.value == 1) or not positive_only_labels}
+        gold_labels = {uid: label for uid, label in gold_labels.items()
+                       if (positive_only_labels and label.value == 1) or not positive_only_labels}
 
-        doc_index     = {doc.name:doc for doc in documents}
-        cand_index    = _group_by_document(candidates)
+        doc_index = {doc.name: doc for doc in documents}
+        cand_index = _group_by_document(candidates)
         snorkel_types = {type(c): 1 for c in candidates}
 
         for name in doc_index:
             doc_anno = self._build_doc_annotations(cand_index[name], gold_labels) if name in cand_index else []
-            fname = "{}{}".format(output_dir,name)
+            fname = "{}{}".format(output_dir, name)
             #  write .ann files
-            with codecs.open(fname + ".ann",'w',self.encoding) as fp:
+            with codecs.open(fname + ".ann", 'w', self.encoding) as fp:
                 fp.write("\n".join(doc_anno))
             # write documents
-            with codecs.open(fname + ".txt",'w',self.encoding) as fp:
+            with codecs.open(fname + ".txt", 'w', self.encoding) as fp:
                 fp.write(doc_to_text(doc_index[name]))
 
         # export config file
@@ -144,7 +146,7 @@ class BratProject(object):
         if self.verbose:
             print("Export complete")
             print("\t {} documents".format(len(doc_index)))
-            print("\t {} annotations".format( sum([len(cand_index[name]) for name in cand_index] )))
+            print("\t {} annotations".format(sum([len(cand_index[name]) for name in cand_index])))
 
     def export_by_candidate_marginals(self, output_dir, positive_only_labels=True):
         """
@@ -156,12 +158,20 @@ class BratProject(object):
         os.makedirs(output_dir, exist_ok=True)
         candidates = self.session.query(Candidate).filter(Candidate.split == 0).all()
         print('Grouping candidates by document')
-        doc_index = _group_candidates_by_document(candidates)
-        snorkel_types = {type(c) for c in candidates}
+        doc_index = _group_candidates_by_document(candidates[:1000])
+        # snorkel_types = {type(c) for c in candidates}
+        snorkel_types = candidates[0].values[:-1]
         configuration_string = self._create_config_from_candidate_types(snorkel_types)
 
         with open(os.path.join(output_dir, 'annotation.conf'), 'w') as conf_file:
             conf_file.write(configuration_string)
+
+        print("Loading the train label matrix...")
+        L_train = load_label_matrix(self.session, split=0)
+
+        print('Loading train marginals..')
+        train_marginals = load_marginals(self.session, L_train)
+        cardinality = train_marginals.shape[1]
 
         # iterate over the documents
         for name in tqdm(doc_index):
@@ -173,13 +183,16 @@ class BratProject(object):
             # write the annotation file
             with open(os.path.join(output_dir, f'{name}.ann'), 'w') as ann_file:
                 annotation_tuples = []
-                for c in doc_index[name]:
-                    if positive_only_labels and c.training_marginal <= 0.5:
-                        continue
-                    char_start, char_end = map(int, c[0].stable_id.split(":")[-2:])
-                    char_end += 1
-                    text = c[0].get_span()
-                    annotation_tuples.append((c.__class__.__name__, char_start, char_end, text))
+                X_train, Y_train, Y_train_picks, Y_train_picks_ext = merge_to_spansets(doc_index[name], train_marginals)
+                max_spanset_length = max(len(x) for x in X_train)
+                for spanset, picks in zip(X_train, Y_train_picks):
+                    for i, pick in enumerate(picks):
+                        if pick < max_spanset_length:
+                            c = spanset[pick]
+                            char_start, char_end = map(int, c[1][0].stable_id.split(":")[-2:])
+                            char_end += 1
+                            text = c[1][0].get_span()
+                            annotation_tuples.append((snorkel_types[i], char_start, char_end, text))
 
                 annotation_tuples.sort(key=lambda tuple: tuple[1])
                 lines = [
@@ -216,7 +229,8 @@ class BratProject(object):
                         text_file.write(text)
                 else:
                     try:
-                        os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'), os.path.join(output_dir, f'{name}_{i}.txt'))
+                        os.symlink(os.path.join(output_dir, f'{name}_{0}.txt'),
+                                   os.path.join(output_dir, f'{name}_{i}.txt'))
                     except FileExistsError:
                         pass
                 # write the annotation file
@@ -252,7 +266,7 @@ class BratProject(object):
         """
         for key in c.__dict__.keys():
             if c.__dict__[key] == span:
-                key = map(lambda x:x[0].upper()+x[1:], re.split("[-_]",key))
+                key = map(lambda x: x[0].upper() + x[1:], re.split("[-_]", key))
                 return "".join(key)
         return None
 
@@ -271,30 +285,30 @@ class BratProject(object):
         :param cands:
         :return:
         """
-        entities,relations,types = {},{},{}
-        for i,c in enumerate(cands):
+        entities, relations, types = {}, {}, {}
+        for i, c in enumerate(cands):
             if c.id not in gold_labels:
                 continue
             for span in c:
                 if span not in entities:
-                    types[span] = self._get_arg_type(c,span)
-                    entities[span] = ("T",len(entities)+1)
+                    types[span] = self._get_arg_type(c, span)
+                    entities[span] = ("T", len(entities) + 1)
             arg1 = "{}{}".format(*entities[c[0]])
             arg2 = "{}{}".format(*entities[c[1]])
-            relations[('R',len(relations)+1)] =  "{} Arg1:{} Arg2:{}".format(type(c).__name__, arg1, arg2)
+            relations[('R', len(relations) + 1)] = "{} Arg1:{} Arg2:{}".format(type(c).__name__, arg1, arg2)
 
-        entities = {uid:span for span,uid in entities.items()}
+        entities = {uid: span for span, uid in entities.items()}
         annotations = []
         # export entities (relation arguments)
-        for uid in sorted(entities, key=lambda x:x[-1]):
+        for uid in sorted(entities, key=lambda x: x[-1]):
             span = entities[uid]
-            char_start, char_end = map(int,span.stable_id.split(":")[-2:])
+            char_start, char_end = map(int, span.stable_id.split(":")[-2:])
             char_end += 1
             arg_id = "{}{}".format(*uid)
             annotations.append("{}\t{} {} {}\t{}".format(arg_id, types[span], char_start, char_end, span.get_span()))
 
         # export relations
-        for uid in sorted(relations, key=lambda x:x[-1]):
+        for uid in sorted(relations, key=lambda x: x[-1]):
             arg_id = "{}{}".format(*uid)
             annotations.append("{}\t{}".format(arg_id, relations[uid]))
 
@@ -354,7 +368,7 @@ class BratProject(object):
                     anno_id, entity, text = row
                     entity_type = entity.split()[0]
                     spans = list(map(lambda x: map(int, x.split()),
-                                entity.lstrip(entity_type).split(";")))
+                                     entity.lstrip(entity_type).split(";")))
 
                     # discontinuous mentions
                     if len(spans) != 1:
@@ -368,8 +382,8 @@ class BratProject(object):
                             tokens = mention.split()
                             sent_id, word_offset = char_idx[i]
                             word_mention = doc[sent_id][word_offset:word_offset + len(tokens)]
-                            parts = {"sent_id":sent_id,"char_start":i,"char_end":j, "entity_type":entity_type,
-                                     "idx_span":(word_offset, word_offset + len(tokens)), "span":word_mention}
+                            parts = {"sent_id": sent_id, "char_start": i, "char_end": j, "entity_type": entity_type,
+                                     "idx_span": (word_offset, word_offset + len(tokens)), "span": word_mention}
                             entity += [parts]
                         else:
                             print("SUB SPAN ERROR", text, (i, j), file=sys.stderr)
@@ -378,7 +392,7 @@ class BratProject(object):
                     # TODO: we assume continuous spans here
                     annotations[anno_id] = entity if not entity else entity[0]
 
-                elif anno_id_prefix in [Brat.RELATION_ID,'*']:
+                elif anno_id_prefix in [Brat.RELATION_ID, '*']:
                     anno_id, rela = row
                     rela_type, arg1, arg2 = rela.split()
                     arg1 = arg1.split(":")[1] if ":" in arg1 else arg1
@@ -422,10 +436,10 @@ class BratProject(object):
             name, arg1, arg2 = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
             # convert relations to camel case
             name = self._get_normed_rela_name(name)
-            arg2 = arg2.split(",")[0] # strip any <rel-type> defs
+            arg2 = arg2.split(",")[0]  # strip any <rel-type> defs
             arg1 = arg1.split("|")
             arg2 = arg2.split("|")
-            tmp.append((name,arg1,arg2))
+            tmp.append((name, arg1, arg2))
         config['relations'] = tmp
 
         tmp = []
@@ -451,7 +465,7 @@ class BratProject(object):
                 class_name = class_name.strip()
                 # see http://brat.nlplab.org/configuration.html#advanced-entities for advanced entity config
                 # skip disabled types or seperators (these only display in the BRAT is-a hierarchy)
-                if class_name[0] in ['!','-']:
+                if class_name[0] in ['!', '-']:
                     continue
                 self.subclasses[class_name] = candidate_subclass(class_name, [class_name.lower()])
                 print('CREATED TYPE Entity({},[{}])'.format(class_name, class_name.lower()))
@@ -475,10 +489,10 @@ class BratProject(object):
 
                 # fix for relations across the same type
                 if len(arg1 + arg2) > 1 and len(set(arg1 + arg2)) == 1:
-                    args = ["{}1".format(args[0]),"{}2".format(args[0])]
+                    args = ["{}1".format(args[0]), "{}2".format(args[0])]
 
-                args = map(lambda x:x.lower(),args)
-                name = name.replace("-","_")
+                args = map(lambda x: x.lower(), args)
+                name = name.replace("-", "_")
 
                 self.subclasses[name] = candidate_subclass(name, args)
                 print('CREATED TYPE Relation({},{})'.format(name, args))
@@ -499,10 +513,10 @@ class BratProject(object):
         for stype in candidate_types:
             rel_type = str(stype.type).rstrip(".type")
             arg_types = [key.rstrip("_id") for key in stype.__dict__ if "_id" in key]
-            arg_types = [name[0].upper()+name[1:] for name in arg_types]
+            arg_types = [name[0].upper() + name[1:] for name in arg_types]
             entity_defs.extend(arg_types)
             if len(arg_types) > 1:
-                rela_name = [str(stype.type).replace(".type","")] + arg_types
+                rela_name = [str(stype.type).replace(".type", "")] + arg_types
                 rela_defs.append("{}\tArg1:{}, Arg2:{}".format(*rela_name))
 
         entity_defs = set(entity_defs)
@@ -538,8 +552,8 @@ class BratProject(object):
                 relations = [key for key in annotations[name] if key[0] in [Brat.RELATION_ID]]
 
                 # create span labels
-                spans = {key:"{}::span:{}:{}".format(name, annotations[name][key]["char_start"],
-                                                     annotations[name][key]["char_end"]) for key in spans}
+                spans = {key: "{}::span:{}:{}".format(name, annotations[name][key]["char_start"],
+                                                      annotations[name][key]["char_end"]) for key in spans}
                 for key in spans:
                     entity_type = annotations[name][key]['entity_type']
                     stable_labels_by_type[entity_type].append(spans[key])
@@ -548,7 +562,7 @@ class BratProject(object):
                 for key in relations:
                     rela_type, arg1, arg2 = annotations[name][key]
                     rela = sorted([[annotations[name][arg1]["entity_type"], spans[arg1]],
-                                    [annotations[name][arg2]["entity_type"],spans[arg2]]])
+                                   [annotations[name][arg2]["entity_type"], spans[arg2]]])
                     stable_labels_by_type[rela_type].append("~~".join(zip(*rela)[1]))
 
         # create stable labels
@@ -577,7 +591,7 @@ class BratProject(object):
                 contexts = et.split('~~')
                 spans = []
 
-                for c,et in zip(contexts,class_name.__argnames__):
+                for c, et in zip(contexts, class_name.__argnames__):
                     stable_id = c.split(":")
                     name, offsets = stable_id[0], stable_id[-2:]
                     span = list(map(int, offsets))
@@ -586,10 +600,10 @@ class BratProject(object):
                     if name not in abs_offsets:
                         abs_offsets[name] = abs_doc_offsets(doc)
 
-                    for j,offset in enumerate(abs_offsets[name]):
+                    for j, offset in enumerate(abs_offsets[name]):
                         if span[0] >= offset[0] and span[1] <= offset[1]:
                             try:
-                                tc = TemporarySpan(char_start=span[0]-offset[0], char_end=span[1]-offset[0]-1,
+                                tc = TemporarySpan(char_start=span[0] - offset[0], char_end=span[1] - offset[0] - 1,
                                                    sentence=doc.sentences[j])
                                 tc.load_id_or_insert(self.session)
                                 spans.append(tc)
@@ -677,7 +691,7 @@ def _group_candidates_by_document(candidates):
     :return:
     """
     doc_index = defaultdict(list)
-    for c in candidates:
+    for c in tqdm(candidates):
         name = c[0].sentence.document.name
         doc_index[name].append(c)
     return doc_index
@@ -696,3 +710,66 @@ def _group_noisy_sentences_by_document(noisy_tagged_sentences, num_sentences):
                            for i
                            in range(num_sentences)]
     return doc_index
+
+
+def merge_to_spansets(candidates, marginals):
+    candidate_spansets = []
+    marginal_spansets = []
+    marginal_picks = []
+    marginal_picks_ext = []
+
+    candidates = [(i, candidate) for i, candidate in enumerate(candidates)]
+    candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
+    current_spanset = []
+    for i, (original_i, candidate) in enumerate(candidates):
+        if current_spanset == []:
+            current_spanset.append((original_i, candidate))
+        else:
+            last_candidate = current_spanset[-1][1]
+            if last_candidate[0].sentence_id == candidate[0].sentence_id \
+                    and last_candidate[0].char_end > candidate[0].char_start:
+                current_spanset.append((original_i, candidate))
+            else:
+                spanset_chunks = [current_spanset[x:x + 10] for x in range(0, len(current_spanset), 10)]
+                for spanset_chunk in spanset_chunks:
+                    current_marginals = marginals_for_spanset(spanset_chunk, marginals)
+                    marginal_spansets.append(current_marginals)
+                    candidate_spansets.append(spanset_chunk)
+                current_spanset = [(original_i, candidate)]
+
+    spanset_chunks = [current_spanset[x:x + 10] for x in range(0, len(current_spanset), 10)]
+    for spanset_chunk in spanset_chunks:
+        current_marginals = marginals_for_spanset(spanset_chunk, marginals)
+        marginal_spansets.append(current_marginals)
+        candidate_spansets.append(spanset_chunk)
+
+    max_spanset_size = max([len(candidate_spanset) for candidate_spanset in candidate_spansets])
+    for marginals, candidate_spanset in zip(marginal_spansets, candidate_spansets):
+        current_picks = picks_from_marginals(marginals, max_spanset_size)
+        marginal_picks.append(current_picks)
+        current_picks_ext = sparse.lil_matrix((1, len(candidate_spanset)), dtype=np.int)
+        for i in range(current_picks.shape[0]):
+            if current_picks[i] < max_spanset_size:
+                current_picks_ext[0, current_picks[i]] = i + 1
+        marginal_picks_ext.append(current_picks_ext)
+
+    return candidate_spansets, marginal_spansets, marginal_picks, marginal_picks_ext
+
+
+def picks_from_marginals(marginals, max_spanset_size):
+    picks = np.zeros(marginals.shape[1] - 1, dtype=int)
+    for i in range(marginals.shape[1] - 1):
+        max_row = np.argmax(marginals[:, i], axis=0)
+        max_value = marginals[max_row, i]
+        if (np.max(marginals[max_row]) == max_value):
+            picks[i] = max_row
+        else:
+            picks[i] = max_spanset_size
+    return picks
+
+
+def marginals_for_spanset(current_spanset, marginals):
+    if not current_spanset:
+        return
+    marginal_indices = [css[0] for css in current_spanset]
+    return marginals[marginal_indices]

@@ -122,7 +122,7 @@ class Label(AnnotationMixin, SnorkelBase):
     value = Column(Integer, nullable=False)
 
 
-class FalseLabel(SnorkelBase):
+class LabelStat(SnorkelBase):
 
     @declared_attr
     def id(cls):
@@ -143,12 +143,13 @@ class FalseLabel(SnorkelBase):
         return relationship('LabelKey',
                             backref=backref(camel_to_under(cls.__name__) + 's', cascade='all, delete-orphan'))
 
-    false_value = Column(String, nullable=False)
+    true_label = Column(Integer, nullable=False)
+    span_value = Column(String, nullable=False)
     frequency = Column(Integer, nullable=False)
     type = Column(String, nullable=False)
 
     def __repr__(self):
-        return self.__class__.__name__ + " (" + str(self.key.name) + " = " + str(self.false_value) + "(" + str(
+        return self.__class__.__name__ + " (" + str(self.key.name) + " = " + str(self.span_value) + "(" + str(
             self.frequency) + "))"
 
 

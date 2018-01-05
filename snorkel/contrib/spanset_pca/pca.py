@@ -1,8 +1,8 @@
 import collections
+import math
 import os
 import warnings
 from time import time
-import math
 
 import numpy as np
 import scipy
@@ -629,13 +629,12 @@ class PCA(TFNoiseAwareModel):
         max_values, max_columns = torch.max(marginal_out, dim=1)
 
         for i in range(marginal_out.size(2) - 1):
-            max_row_values, max_rows = torch.max(marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
-                                                 dim=1)
+            max_row_values, max_rows = torch.max(
+                marginal_out[list(range(marginal_out.size(0))), max_columns[:, i].data],
+                dim=1)
             row_is_not_max = (max_rows != i) * 100.
             max_out_columns[i, :, -1] = row_is_not_max
         marginal_out[(marginal_out == -100.).detach()] = 0
-
-
 
         sigmoid = nn.Sigmoid()
         if self.host_device in self.gpu:

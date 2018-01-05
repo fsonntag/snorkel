@@ -152,3 +152,31 @@ def tokens_to_ngrams(tokens, n_max=3, delim=' '):
     for root in range(N):
         for n in range(min(n_max, N - root)):
             yield delim.join(tokens[root:root + n + 1])
+
+
+def overlapping_score(candidate1, candidate2):
+    span1 = candidate1[0]
+    span2 = candidate2[0]
+    if span1.sentence_id != span2.sentence_id:
+        return 0.
+    start1, end1 = span1.char_start, span1.char_end
+    start2, end2 = span2.char_start, span2.char_end
+    if start1 == start2 and end1 == end2:
+        return 1.
+    if not (start1 <= end2
+            and end1 >= start2):
+        return 0.
+    if end1 == end2:
+        common_chars = end1 - start2
+        non_common_chars = start1 - start2
+    elif end2 > end1:
+        common_chars = (end1 + 1) - max(start1, start2)
+        non_common_chars = end2 - end1
+    else:
+        common_chars = (end2 + 1) - max(start1, start2)
+        non_common_chars = start1 - start2
+    if non_common_chars < 0:
+        non_common_chars = 0
+    length1 = (end1 + 1) - start1
+    length2 = (end2 + 1) - start2
+    return abs(common_chars / length1 * (1 - non_common_chars / length2))
