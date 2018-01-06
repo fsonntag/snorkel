@@ -668,8 +668,8 @@ def write_fp(L, labels, session, lf_names):
         candidates = get_fp_candidates(L, labels, i, session)
         if candidates:
             with open(out_path / f'fp_{lf_names[i]}.tsv', 'w') as file:
-                file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c in candidates])
-            candidate_names = [c[0].get_span() for c in candidates]
+                file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c, _ in candidates])
+            candidate_names = [c[0].get_span() for c, _ in candidates]
             name_counts = Counter(candidate_names)
             with open(out_path / f'fp_counts_{lf_names[i]}.tsv', 'w') as file:
                 file.writelines([f'{name}\t{count}' + '\n' for name, count in name_counts.most_common()])
@@ -682,8 +682,8 @@ def write_fn(L, labels, session, lf_names):
         candidates = get_fn_candidates(L, labels, i, session)
         if candidates:
             with open(out_path / f'fn_{lf_names[i]}.tsv', 'w') as file:
-                file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c in candidates])
-            candidate_names = [c[0].get_span() for c in candidates]
+                file.writelines([f'{c[0].get_span()}\t{c[0].stable_id}\n' for c, _ in candidates])
+            candidate_names = [c[0].get_span() for c, _ in candidates]
             name_counts = Counter(candidate_names)
             with open(out_path / f'fn_counts_{lf_names[i]}.tsv', 'w') as file:
                 file.writelines([f'{name}\t{count}' + '\n' for name, count in name_counts.most_common()])
