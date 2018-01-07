@@ -636,7 +636,7 @@ def write_confusion_matrices(L, labels, session, lf_names, label_values, seperat
                 overlap_indices = set(pred_indices) & set(true_indices)
                 cm[column_idx][index_idx] = len(overlap_indices)
                 ov_cm[column_idx][index_idx] = len(overlap_indices)
-                if i > 0 and i < max_value and j != i and len(overlap_indices) > 0:
+                if 0 < i < max_value and j != i and len(overlap_indices) > 0:
                     true_indices = np.where(labels == i)[0]
                     pred_candidate_indices = [L.row_index[i_idx] for i_idx in overlap_indices]
                     pred_candidates = session.query(Candidate).filter(Candidate.id.in_(pred_candidate_indices)).all()

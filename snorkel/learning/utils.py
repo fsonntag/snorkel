@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sparse
 
+from snorkel.utils import overlapping_score
+
 try:
     from queue import Empty
 except:
@@ -176,11 +178,13 @@ class Scorer(object):
 
 class Counts:
     def __init__(self):
-        self.tp, self.fp, self.tn, self.fn, self.fp_ov, self.fn_ov = \
-            set(), set(), set(), set(), set(), set()
+        self.tp, self.fp, self.tn, self.fn = \
+            set(), set(), set(), set()
+        self.fp_ov, self.fn_ov = dict(), dict()
         self.types = set()
-        self.t_tp, self.t_fp, self.t_tn, self.t_fn, self.t_fp_ov, self.t_fn_ov = \
-            defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set)
+        self.t_tp, self.t_fp, self.t_tn, self.t_fn = \
+            defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set)
+        self.t_fp_ov, self.t_fn_ov = defaultdict(dict), defaultdict(dict)
         self.t_support = defaultdict(set)
 
 
@@ -284,13 +288,13 @@ class MentionScorer(Scorer):
             before_candidate = candidates[j][1]
             if before_candidate[0].sentence_id != candidate[0].sentence_id:
                 break
-            if candidate[0].char_start < before_candidate[0].char_end \
-                    and candidate[0].char_end > before_candidate[0].char_start:
+            ov_score = overlapping_score(candidate, before_candidate)
+            if ov_score:
                 test_label = self._get_label_for_candidate(j, before_candidate)
                 if test_label == 0 and set_unlabeled_as_neg:
                     test_label = -1
                 if test_label in labels:
-                    return True
+                    return ov_score, before_candidate
                 j -= 1
             else:
                 before_overlapping = False
@@ -300,17 +304,17 @@ class MentionScorer(Scorer):
             after_candidate = candidates[j][1]
             if after_candidate[0].sentence_id != candidate[0].sentence_id:
                 break
-            if candidate[0].char_start < after_candidate[0].char_end \
-                    and candidate[0].char_end > after_candidate[0].char_start:
+            ov_score = overlapping_score(candidate, after_candidate)
+            if ov_score:
                 test_label = self._get_label_for_candidate(j, after_candidate)
                 if test_label == 0 and set_unlabeled_as_neg:
                     test_label = -1
                 if test_label in labels:
-                    return True
+                    return ov_score, after_candidate
                 j += 1
             else:
                 after_overlapping = False
-        return False
+        return False, None
 
     def _score_categorical(self, test_marginals, train_marginals=None,
                            display=True, **kwargs):
@@ -361,10 +365,11 @@ class MentionScorer(Scorer):
                     else:
                         counts.fp.add(candidate)
                         counts.t_fp[type].add(candidate)
-                        if self._overlapping_candidate_has_label({predicted_label}, type_i, candidate, candidates,
-                                                                 False):
-                            counts.fp_ov.add(candidate)
-                            counts.t_fp_ov[type].add(candidate)
+                        ov_score, ov_candidate = self._overlapping_candidate_has_label({predicted_label}, i, candidate, candidates,
+                                                                         False)
+                        if ov_score:
+                            counts.fp_ov[(candidate, ov_candidate)] = ov_score
+                            counts.t_fp_ov[type][(candidate, ov_candidate)] = ov_score
                 else:
                     if true_test_label != current_type_label:
                         counts.tn.add(candidate)
@@ -372,10 +377,11 @@ class MentionScorer(Scorer):
                     else:
                         counts.fn.add(candidate)
                         counts.t_fn[type].add(candidate)
-                        if self._overlapping_candidate_has_label(other_labels, type_i, candidate, candidates,
-                                                                 False):
-                            counts.fn_ov.add(candidate)
-                            counts.t_fn_ov[type].add(candidate)
+                        ov_score, ov_candidate = self._overlapping_candidate_has_label(other_labels, i, candidate, candidates,
+                                                                         False)
+                        if ov_score:
+                            counts.fn_ov[(candidate, ov_candidate)] = ov_score
+                            counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
 
         self.write_counts(counts)
 
@@ -410,6 +416,17 @@ class MentionScorer(Scorer):
                     name_counts = Counter(candidate_names)
                     with open(out_path / f'{type}_{count_type}_counts.tsv', 'w') as file:
                         file.writelines([f'{name}\t{count}' + '\n' for name, count in name_counts.most_common()])
+
+        for type_dict, count_type in [(counts.t_fp_ov, 'fp_ov'), (counts.t_fn_ov, 'fn_ov')]:
+            for type, candidates in type_dict.items():
+                if candidates:
+                    with open(out_path / f'{type}_{count_type}.tsv', 'w') as file:
+                        file.writelines([f'{pred_c[0].get_span()}\t{pred_c[0].stable_id}\t{true_c[0].get_span()}\t{true_c[0].stable_id}\n' for pred_c, true_c in candidates.keys()])
+                    candidate_names = [(pred_c[0].get_span(), true_c[0].get_span()) for pred_c, true_c in candidates]
+                    name_counts = Counter(candidate_names)
+                    with open(out_path / f'{type}_{count_type}_counts.tsv', 'w') as file:
+                        file.writelines([f'{pred_name}\t{true_name}\t{count}' + '\n' for (pred_name, true_name), count in name_counts.most_common()])
+
 
 
     def summary_score(self, test_marginals, **kwargs):
@@ -448,16 +465,7 @@ def binary_scores_from_counts(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None):
         rec_ov = _tp_ov / (_tp_ov + _fn_ov) if _tp_ov + _fn_ov > 0 else 0.0
         f1_ov = (2 * prec_ov * rec_ov) / (prec_ov + rec_ov) if prec_ov + rec_ov > 0 else 0.0
 
-        _tp_half_ov = ntp + (nfp_ov + nfn_ov) / 2
-        _fp_half_ov = nfp - nfp_ov
-        _fn_half_ov = nfn - nfn_ov
-        prec_half_ov = _tp_half_ov / (
-                ntp + nfp_ov + nfn_ov + _fp_half_ov) if ntp + nfp_ov + nfn_ov + _fp_half_ov > 0 else 0.0
-        rec_half_ov = _tp_half_ov / (
-                ntp + nfp_ov + nfn_ov + _fn_half_ov) if ntp + nfp_ov + nfn_ov + _fn_half_ov > 0 else 0.0
-        f1_half_ov = (2 * prec_half_ov * rec_half_ov) / (
-                prec_half_ov + rec_half_ov) if prec_half_ov + rec_half_ov > 0 else 0.0
-        return prec, rec, f1, prec_ov, rec_ov, f1_ov, prec_half_ov, rec_half_ov, f1_half_ov
+        return prec, rec, f1, prec_ov, rec_ov, f1_ov
 
 
 def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True):
@@ -468,8 +476,8 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
                          len(counts.t_fp[type]),
                          len(counts.t_tn[type]),
                          len(counts.t_fn[type]),
-                         len(counts.t_fp_ov[type]),
-                         len(counts.t_fn_ov[type]),
+                         sum(counts.t_fp_ov[type].values()),
+                         sum(counts.t_fn_ov[type].values()),
                          title=title,
                          print_scores=print_scores)
 
@@ -485,8 +493,8 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
                                   np.average([len(counts.t_fp[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_tn[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fn[type]) for type in counts.types], weights=weights),
-                                  np.average([len(counts.t_fp_ov[type]) for type in counts.types], weights=weights),
-                                  np.average([len(counts.t_fn_ov[type]) for type in counts.types], weights=weights),
+                                  np.average([sum(counts.t_fp_ov[type].values()) for type in counts.types], weights=weights),
+                                  np.average([sum(counts.t_fn_ov[type].values()) for type in counts.types], weights=weights),
                                   title=title,
                                   print_scores=print_scores)
     else:
@@ -496,8 +504,8 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
                                   len(counts.fp),
                                   len(counts.tn),
                                   len(counts.fn),
-                                  len(counts.fp_ov),
-                                  len(counts.fn_ov),
+                                  sum(counts.fp_ov.values()),
+                                  sum(counts.fn_ov.values()),
                                   title=title,
                                   print_scores=print_scores)
     return scores
@@ -514,11 +522,11 @@ def calculate_scores(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None, title='Scores
         print("========================================")
         print(title)
         print("========================================")
-        print("Pos. class accuracy: {:.3}".format(pos_acc))
-        print("Neg. class accuracy: {:.3}".format(neg_acc))
-        print("Precision            {:.3}".format(prec))
-        print("Recall               {:.3}".format(rec))
-        print("F1                   {:.3}".format(f1))
+        print("Pos. class accuracy: {:.3f}".format(pos_acc))
+        print("Neg. class accuracy: {:.3f}".format(neg_acc))
+        print("Precision            {:.3f}".format(prec))
+        print("Recall               {:.3f}".format(rec))
+        print("F1                   {:.3f}".format(f1))
         print("----------------------------------------")
         print("TP: {} | FP: {} | TN: {} | FN: {}".format(ntp, nfp, ntn, nfn))
         print("========================================\n")
@@ -526,7 +534,7 @@ def calculate_scores(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None, title='Scores
 
 
 def print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov, title='Scores', print_scores=True):
-    prec, rec, f1, prec_ov, rec_ov, f1_ov, prec_half_ov, rec_half_ov, f1_half_ov \
+    prec, rec, f1, prec_ov, rec_ov, f1_ov \
         = binary_scores_from_counts(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov)
     pos_acc = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
     neg_acc = ntn / float(ntn + nfp) if ntn + nfp > 0 else 0.0
@@ -534,22 +542,19 @@ def print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov, title='Sco
         print("======================================================")
         print(title)
         print("======================================================")
-        print("Pos. class accuracy:                            {:.3}".format(pos_acc))
-        print("Neg. class accuracy:                            {:.3}".format(neg_acc))
-        print("Precision                                       {:.3}".format(prec))
-        print("Recall                                          {:.3}".format(rec))
-        print("F1                                              {:.3}".format(f1))
-        print("Overl. Precision                                {:.3}".format(prec_ov))
-        print("Overl. Recall                                   {:.3}".format(rec_ov))
-        print("Overl. F1                                       {:.3}".format(f1_ov))
-        print("Half overl. Precision                           {:.3}".format(prec_half_ov))
-        print("Half overl. Recall                              {:.3}".format(rec_half_ov))
-        print("Half overl. F1                                  {:.3}".format(f1_half_ov))
+        print("Pos. class accuracy:                            {:.3f}".format(pos_acc))
+        print("Neg. class accuracy:                            {:.3f}".format(neg_acc))
+        print("Precision                                       {:.3f}".format(prec))
+        print("Recall                                          {:.3f}".format(rec))
+        print("F1                                              {:.3f}".format(f1))
+        print("Overl. Precision                                {:.3f}".format(prec_ov))
+        print("Overl. Recall                                   {:.3f}".format(rec_ov))
+        print("Overl. F1                                       {:.3f}".format(f1_ov))
         print("-------------------------------------------------------")
-        print("TP: {} | FP: {} | TN: {} | FN: {} | FP OV: {} | FN OV: {}"
+        print("TP: {:.3f} | FP: {:.3f} | TN: {:.3f} | FN: {:.3f} | FP OV: {:.3f} | FN OV: {:.3f}"
               .format(ntp, nfp, ntn, nfn, nfp_ov, nfn_ov))
         print("=======================================================\n")
-    return prec, rec, f1, prec_ov, rec_ov, f1_ov, prec_half_ov, rec_half_ov, f1_half_ov
+    return prec, rec, f1, prec_ov, rec_ov, f1_ov
 
 
 ############################################################
