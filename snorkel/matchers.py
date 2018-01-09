@@ -130,7 +130,10 @@ class DictionaryMatch(NgramMatcher):
         p = first_char_lower(p) if self.ignore_first_case and not p.isupper() else p
         p = p.lower() if self.ignore_case else p
         p = self._stem(p) if self.stemmer is not None else p
-        return (not self.reverse) if p in self.d else self.reverse
+        if c.char_start == 0:
+            return (not self.reverse) if p in self.d or first_char_lower(p) in self.d else self.reverse
+        else:
+            return (not self.reverse) if p in self.d else self.reverse
 
 class LambdaFunctionMatcher(NgramMatcher):
     """Selects candidate Ngrams that return True when fed to a function f."""
