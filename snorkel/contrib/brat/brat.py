@@ -209,9 +209,14 @@ class BratAnnotator(object):
         # fpath = self.get_collection_path(annotation_dir)
         fpath = annotation_dir
         annotations = self.standoff_parser.load_annotations(fpath)
+        doc_names = {c[0].sentence.document.meta['file_name'][:-4] for c in candidates}
+        all_gold_keys = list(annotations.keys())
+        for key in all_gold_keys:
+            if key not in doc_names:
+                annotations.pop(key)
 
         # load Document objects from session
-        doc_names = [doc_name for doc_name in annotations if annotations[doc_name]]
+        doc_names = list(doc_names)
         documents = session.query(Document).filter(Document.name.in_(doc_names)).all()
         documents = [doc for doc in documents if 'file_name' in doc.meta]
         documents = {doc.name: doc for doc in documents}
@@ -260,7 +265,10 @@ class BratAnnotator(object):
                         sentence = brat_stable_ids[span].sentence
                         char_offsets = sentence.char_offsets
                         if span_entry.char_start not in char_offsets:
-                            missed.append((span, span_entry.get_span(), 'missed_tokenized', ''))
+                            type = span_entry.meta['type']
+                            span_entry.meta = None
+                            span_entry.load_id_or_insert(self.session)
+                            missed.append((span, span_entry.get_span(), type, 'missed_tokenized', '', span_entry))
                             continue
                         if span_entry.char_end >= char_offsets[-1]:
                             last_token = sentence.words[-1]
@@ -269,11 +277,17 @@ class BratAnnotator(object):
                                 x[0] for x in enumerate(char_offsets) if x[1] > span_entry.char_end) - 1
                             last_token = sentence.words[last_word_index]
                         if not span_entry.get_span().endswith(last_token):
+                            type = span_entry.meta['type']
+                            span_entry.meta = None
+                            span_entry.load_id_or_insert(self.session)
                             missed.append(
-                                (span, span_entry.get_span(), span_entry.meta['type'], 'missed_tokenized', ''))
+                                (span, span_entry.get_span(), type, 'missed_tokenized', '', span_entry))
                         else:
-                            missed.append((span, span_entry.get_span(), span_entry.meta['type'], 'missed_candidate',
-                                           span_entry.get_attrib_span('pos_tags')))
+                            type = span_entry.meta['type']
+                            span_entry.meta = None
+                            span_entry.load_id_or_insert(self.session)
+                            missed.append((span, span_entry.get_span(), type, 'missed_candidate',
+                                           span_entry.get_attrib_span('pos_tags'), span_entry))
 
             for c in candidates:
                 if c[0].get_stable_id() not in brat_stable_ids:
@@ -284,14 +298,14 @@ class BratAnnotator(object):
 
         out_path.mkdir(exist_ok=True)
         with open(out_path / f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
-            file.writelines(['\t'.join(s) + '\n' for s in missed])
+            file.writelines(['\t'.join(s[:-1]) + '\n' for s in missed])
         with open(out_path / f'fp_{self.candidate_class.__name__}.tsv', 'w') as file:
             file.writelines(['\t'.join(s) + '\n' for s in false_positives])
         n, N = len(mapped_cands), len(missed) + len(mapped_cands)
         p = 0 if N == 0 else len(mapped_cands) / float(N)
         print("Mapped {}/{} ({:2.0f}%) of {} BRAT labels to {} candidates"
               .format(n, N, p * 100, self.candidate_class.__name__, self.candidate_class.__name__))
-        return mapped_cands, len(missed)
+        return mapped_cands, missed
 
     def error_analysis(self, session, candidates, marginals, annotation_dir, b=0.5):
         """
@@ -355,8 +369,9 @@ class BratAnnotator(object):
         """
         return "{}/{}".format(self.data_root, annotation_dir)
 
-    def import_gold_labels(self, session, annotation_dir, candidates, binary=True, categorical=False,
-                           symmetric_relations=True, annotator_name='brat', out_path=Path('brat-out')):
+    def import_gold_labels(self, session, annotation_dir, candidates, entity_type, split, binary=True,
+                           categorical=False, symmetric_relations=True, annotator_name='brat',
+                           out_path=Path('brat-out')):
         """
         We assume all candidates provided to this function are true instances
         :param session:
@@ -364,8 +379,9 @@ class BratAnnotator(object):
         :param annotator_name:
         :return:
         """
-        mapped_cands, _ = self.map_annotations(session, annotation_dir, candidates, binary, symmetric_relations,
-                                               out_path=Path('brat-out'))
+        mapped_cands, missed_cands = self.map_annotations(session, annotation_dir, candidates, binary,
+                                                          symmetric_relations,
+                                                          out_path=Path('brat-out'))
 
         for c, type in mapped_cands:
             if categorical:
@@ -383,6 +399,32 @@ class BratAnnotator(object):
                     continue
                 label = GoldLabel(key=self.annotator, candidate=c, value=1)
                 session.add(label)
+        split = split + 3
+        session.query(Candidate).filter(Candidate.split == split).delete()
+        for span in missed_cands:
+            type = span[2]
+            span = span[-1]
+            if categorical:
+                c = session.query(entity_type).filter(entity_type.entity_id == span.id).one_or_none()
+                if c is None:
+                    candidate_args = {'split': split, f'{entity_type.__tablename__}_id': span.id}
+                    c = entity_type(**candidate_args)
+                    session.add(c)
+                value = c.values.index(type) + 1
+                if self.session.query(GoldLabel).filter(and_(GoldLabel.key_id == self.annotator.id,
+                                                             GoldLabel.candidate_id == c.id,
+                                                             GoldLabel.value == value)).all():
+                    continue
+                label = GoldLabel(key=self.annotator, candidate=c, value=value)
+                session.add(label)
+            else:
+                if self.session.query(GoldLabel).filter(and_(GoldLabel.key_id == self.annotator.id,
+                                                             GoldLabel.candidate_id == c.id,
+                                                             GoldLabel.value == 1)).all():
+                    continue
+                label = GoldLabel(key=self.annotator, candidate=c, value=1)
+                session.add(label)
+
         session.commit()
 
     def _score(self, y_true, y_pred, recall_correction=0, title='BRAT Scores'):
