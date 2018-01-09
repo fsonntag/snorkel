@@ -285,12 +285,13 @@ class MentionScorer(Scorer):
         j = i - 1
         before_overlapping = True
         while before_overlapping and 0 <= j:
+            before_i = candidates[j][0]
             before_candidate = candidates[j][1]
             if before_candidate[0].sentence_id != candidate[0].sentence_id:
                 break
             ov_score = overlapping_score(candidate, before_candidate)
             if ov_score:
-                test_label = self._get_label_for_candidate(j, before_candidate)
+                test_label = self._get_label_for_candidate(before_i, before_candidate)
                 if test_label == 0 and set_unlabeled_as_neg:
                     test_label = -1
                 if test_label in labels:
@@ -301,12 +302,50 @@ class MentionScorer(Scorer):
         after_overlapping = True
         j = i + 1
         while after_overlapping and len(candidates) > j:
+            after_i = candidates[j][0]
             after_candidate = candidates[j][1]
             if after_candidate[0].sentence_id != candidate[0].sentence_id:
                 break
             ov_score = overlapping_score(candidate, after_candidate)
             if ov_score:
-                test_label = self._get_label_for_candidate(j, after_candidate)
+                test_label = self._get_label_for_candidate(after_i, after_candidate)
+                if test_label == 0 and set_unlabeled_as_neg:
+                    test_label = -1
+                if test_label in labels:
+                    return ov_score, after_candidate
+                j += 1
+            else:
+                after_overlapping = False
+        return False, None
+
+    def _overlapping_candidate_has_pred(self, labels, i, candidate, candidates, preds, set_unlabeled_as_neg=True):
+        j = i - 1
+        before_overlapping = True
+        while before_overlapping and 0 <= j:
+            before_i = candidates[j][0]
+            before_candidate = candidates[j][1]
+            if before_candidate[0].sentence_id != candidate[0].sentence_id:
+                break
+            ov_score = overlapping_score(candidate, before_candidate)
+            if ov_score:
+                test_label = preds[before_i]
+                if test_label == 0 and set_unlabeled_as_neg:
+                    test_label = -1
+                if test_label in labels:
+                    return ov_score, before_candidate
+                j -= 1
+            else:
+                before_overlapping = False
+        after_overlapping = True
+        j = i + 1
+        while after_overlapping and len(candidates) > j:
+            after_i = candidates[j][0]
+            after_candidate = candidates[j][1]
+            if after_candidate[0].sentence_id != candidate[0].sentence_id:
+                break
+            ov_score = overlapping_score(candidate, after_candidate)
+            if ov_score:
+                test_label = preds[after_i]
                 if test_label == 0 and set_unlabeled_as_neg:
                     test_label = -1
                 if test_label in labels:
@@ -365,8 +404,8 @@ class MentionScorer(Scorer):
                     else:
                         counts.fp.add(candidate)
                         counts.t_fp[type].add(candidate)
-                        ov_score, ov_candidate = self._overlapping_candidate_has_label({predicted_label}, i, candidate, candidates,
-                                                                         False)
+                        ov_score, ov_candidate = self._overlapping_candidate_has_label({predicted_label}, type_i,
+                                                                                       candidate, candidates, False)
                         if ov_score:
                             counts.fp_ov[(candidate, ov_candidate)] = ov_score
                             counts.t_fp_ov[type][(candidate, ov_candidate)] = ov_score
@@ -377,8 +416,9 @@ class MentionScorer(Scorer):
                     else:
                         counts.fn.add(candidate)
                         counts.t_fn[type].add(candidate)
-                        ov_score, ov_candidate = self._overlapping_candidate_has_label(other_labels, i, candidate, candidates,
-                                                                         False)
+                        ov_score, ov_candidate = self._overlapping_candidate_has_pred({true_test_label}, type_i,
+                                                                                      candidate,
+                                                                                      candidates, test_pred, False)
                         if ov_score:
                             counts.fn_ov[(candidate, ov_candidate)] = ov_score
                             counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
@@ -393,8 +433,22 @@ class MentionScorer(Scorer):
                 gold_fn = [c for c in self.gold_candidate_set
                            if c not in self.test_candidates]
                 print("\n")
-                calculate_scores(len(counts.tp), len(counts.fp), len(counts.tn), len(counts.fn) + len(gold_fn),
-                                 title="Corpus Recall-adjusted Scores")
+                candidates += [(-1, c) for c in gold_fn]
+                candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start))
+                for candidate in gold_fn:
+                    type_label = candidate.gold_labels[0].value
+                    type = types[type_label - 1]
+                    counts.fn.add(candidate)
+                    counts.t_fn[type].add(candidate)
+                    i = candidates.index((-1, candidate))
+                    ov_score, ov_candidate = self._overlapping_candidate_has_pred({type_label}, i, candidate,
+                                                                                  candidates, test_pred,
+                                                                                  False)
+                    if ov_score:
+                        counts.fn_ov[(candidate, ov_candidate)] = ov_score
+                        counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
+
+                scores = scores_from_counts(counts, "Corpus Recall-adjusted Scores", weighted=True, print_scores=display)
 
             # If training and test marginals provided print calibration plots
             if train_marginals is not None and test_marginals is not None:
@@ -421,13 +475,15 @@ class MentionScorer(Scorer):
             for type, candidates in type_dict.items():
                 if candidates:
                     with open(out_path / f'{type}_{count_type}.tsv', 'w') as file:
-                        file.writelines([f'{pred_c[0].get_span()}\t{pred_c[0].stable_id}\t{true_c[0].get_span()}\t{true_c[0].stable_id}\n' for pred_c, true_c in candidates.keys()])
+                        file.writelines([
+                            f'{pred_c[0].get_span()}\t{pred_c[0].stable_id}\t{true_c[0].get_span()}\t{true_c[0].stable_id}\n'
+                            for pred_c, true_c in candidates.keys()])
                     candidate_names = [(pred_c[0].get_span(), true_c[0].get_span()) for pred_c, true_c in candidates]
                     name_counts = Counter(candidate_names)
                     with open(out_path / f'{type}_{count_type}_counts.tsv', 'w') as file:
-                        file.writelines([f'{pred_name}\t{true_name}\t{count}' + '\n' for (pred_name, true_name), count in name_counts.most_common()])
-
-
+                        file.writelines(
+                            [f'{pred_name}\t{true_name}\t{count}' + '\n' for (pred_name, true_name), count in
+                             name_counts.most_common()])
 
     def summary_score(self, test_marginals, **kwargs):
         """
@@ -493,8 +549,10 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
                                   np.average([len(counts.t_fp[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_tn[type]) for type in counts.types], weights=weights),
                                   np.average([len(counts.t_fn[type]) for type in counts.types], weights=weights),
-                                  np.average([sum(counts.t_fp_ov[type].values()) for type in counts.types], weights=weights),
-                                  np.average([sum(counts.t_fn_ov[type].values()) for type in counts.types], weights=weights),
+                                  np.average([sum(counts.t_fp_ov[type].values()) for type in counts.types],
+                                             weights=weights),
+                                  np.average([sum(counts.t_fn_ov[type].values()) for type in counts.types],
+                                             weights=weights),
                                   title=title,
                                   print_scores=print_scores)
     else:
@@ -513,7 +571,7 @@ def scores_from_counts(counts, title='Scores', weighted=False, print_scores=True
 
 def calculate_scores(ntp, nfp, ntn, nfn, nfp_ov=None, nfn_ov=None, title='Scores', print_scores=True):
     if nfp_ov or nfn_ov:
-        return print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov=nfp_ov, nfn_ov=nfn_ov, title='Scores',
+        return print_scores_with_overlapping(ntp, nfp, ntn, nfn, nfp_ov=nfp_ov, nfn_ov=nfn_ov, title=title,
                                              print_scores=print_scores)
     prec, rec, f1 = binary_scores_from_counts(ntp, nfp, ntn, nfn)
     pos_acc = ntp / float(ntp + nfn) if ntp + nfn > 0 else 0.0
