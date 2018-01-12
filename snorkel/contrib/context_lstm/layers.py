@@ -260,11 +260,11 @@ class CombinedRNN(nn.Module):
     def init_hidden(self, batch_size):
         if self.bidirectional:
             return ((Variable(torch.zeros(2, batch_size, self.lstm_hidden)),
-                    Variable(torch.zeros(2, batch_size, self.lstm_hidden))),
+                     Variable(torch.zeros(2, batch_size, self.lstm_hidden))),
                     (Variable(torch.zeros(2, batch_size, self.lstm_hidden)),
                      Variable(torch.zeros(2, batch_size, self.lstm_hidden))))
         else:
             return ((Variable(torch.zeros(1, batch_size, self.lstm_hidden)),
-                    Variable(torch.zeros(1, batch_size, self.lstm_hidden))),
+                     Variable(torch.zeros(1, batch_size, self.lstm_hidden))),
                     (Variable(torch.zeros(1, batch_size, self.lstm_hidden)),
                      Variable(torch.zeros(1, batch_size, self.lstm_hidden))))

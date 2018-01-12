@@ -642,8 +642,8 @@ class ContextLSTM(Classifier):
                 s = _s if s is None else torch.cat((s, _s), 0)
             s = s.transpose(0, 1)
             y_pred = self.combined_word_model(context_x_w, context_x_w_mask, context_w_state_word,
-                         candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
-                         s)
+                                              candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
+                                              s)
             if self.host_device in self.gpu:
                 if self.cardinality > 2:
                     y = np.vstack((y, sigmoid(y_pred).data.cpu().numpy()))

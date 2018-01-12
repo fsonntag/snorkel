@@ -43,8 +43,8 @@ def candidate_to_tokens(candidate, token_type='words', lowercase=False):
 def trim_with_radius(tokens, candidate, candidate_radius):
     candidate_start = candidate[0].get_word_start()
     candidate_end = candidate[0].get_word_end()
-    return tokens[max(candidate_start - candidate_radius , 0):
-                            min(candidate_end + 1 + candidate_radius + 2, len(tokens))]
+    return tokens[max(candidate_start - candidate_radius, 0):
+                  min(candidate_end + 1 + candidate_radius + 2, len(tokens))]
 
 
 def mark(l, h, idx):
@@ -93,7 +93,6 @@ def pad_batch(batch_w_context, batch_w_candidate, batch_c_candidate, context_rad
     context_word_matrix = Variable(torch.from_numpy(context_word_matrix))
     context_word_mask_matrix = Variable(torch.eq(context_word_matrix.data, 0))
 
-
     for idx1, i in enumerate(batch_w_candidate):
         for idx2, j in enumerate(i):
             try:
@@ -102,7 +101,6 @@ def pad_batch(batch_w_context, batch_w_candidate, batch_c_candidate, context_rad
                 pass
     candidate_word_matrix = Variable(torch.from_numpy(candidate_word_matrix))
     candidate_word_mask_matrix = Variable(torch.eq(candidate_word_matrix.data, 0))
-
 
     for idx1, i in enumerate(batch_c_candidate):
         for idx2, j in enumerate(i):
@@ -114,7 +112,7 @@ def pad_batch(batch_w_context, batch_w_candidate, batch_c_candidate, context_rad
     candidate_char_matrix = Variable(torch.from_numpy(candidate_char_matrix))
     candidate_char_mask_matrix = Variable(torch.eq(candidate_char_matrix.data, 0))
 
-    return context_word_matrix, context_word_mask_matrix,\
+    return context_word_matrix, context_word_mask_matrix, \
            candidate_word_matrix, candidate_word_mask_matrix, \
            candidate_char_matrix, candidate_char_mask_matrix
 

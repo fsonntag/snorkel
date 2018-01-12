@@ -8,7 +8,7 @@ from torch.nn.modules.loss import _WeightedLoss, _assert_no_grad
 
 class SigmoidWithBinaryCrossEntropy(_WeightedLoss):
     def __init__(self, weight=None, size_average=True, inplace=False):
-        if inplace: # run sigmoid in place
+        if inplace:  # run sigmoid in place
             self.function = _SigmoidWithBinaryCrossEntropyInplace
         else:
             self.function = _SigmoidWithBinaryCrossEntropy
