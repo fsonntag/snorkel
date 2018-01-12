@@ -740,8 +740,8 @@ class PCA(TFNoiseAwareModel):
             self.create_dict(kwargs['init_pretrained'], word=True, char=self.char)
             del self.model_kwargs["init_pretrained"]
 
-    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
-              dev_ckpt_delay=0.75, save_dir='checkpoints', **kwargs):
+    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, gold_candidate_set=None, print_freq=5,
+              dev_ckpt=True, dev_ckpt_delay=0.75, save_dir='checkpoints', **kwargs):
 
         """
         Perform preprocessing of data, construct dataset-specific model, then
@@ -910,7 +910,6 @@ class PCA(TFNoiseAwareModel):
 
         for idx in range(self.n_epochs):
             cost = 0.
-            # dev_scores = self.error_analysis(session, X_dev, new_X_dev, new_Y_dev, batch_size=self.batch_size)
             for x, y, y_pick in train_loader:
                 cost += self.train_model(self.model, loss, spanset_loss, optimizer, x, y.float(), y_pick)
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
@@ -931,7 +930,8 @@ class PCA(TFNoiseAwareModel):
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
-                    dev_scores = self.error_analysis(session, X_dev, new_X_dev, new_Y_dev, batch_size=self.batch_size)
+                    dev_scores = self.error_analysis(session, X_dev, new_X_dev, new_Y_dev, gold_candidate_set,
+                                                     batch_size=self.batch_size)
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
@@ -1036,7 +1036,8 @@ class PCA(TFNoiseAwareModel):
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))
 
-    def error_analysis_from_untransformed(self, session, X_test, Y_test, display=True, batch_size=None,
+    def error_analysis_from_untransformed(self, session, X_test, Y_test, gold_candidate_set=None,
+                                          display=True, batch_size=None,
                                           scorer=MentionScorer, **kwargs):
 
         X_test = self._preprocess_data_combination(X_test)
@@ -1061,13 +1062,14 @@ class PCA(TFNoiseAwareModel):
                             X_test=X_test,
                             X_test_transformed=new_X_test,
                             Y_test=new_Y_test,
+                            gold_candidate_set=gold_candidate_set,
                             display=display,
                             batch_size=batch_size,
                             scorer=scorer,
                             kwargs=kwargs)
 
-    def error_analysis(self, session, X_test, X_test_transformed, Y_test, display=True, batch_size=None,
-                       scorer=MentionScorer, **kwargs):
+    def error_analysis(self, session, X_test, X_test_transformed, Y_test, gold_candidate_set=None, display=True,
+                       batch_size=None, scorer=MentionScorer, **kwargs):
         """
         Prints full score analysis using the Scorer class, and then returns the
         a tuple of sets conatining the test candidates bucketed for error
@@ -1111,6 +1113,6 @@ class PCA(TFNoiseAwareModel):
             new_Y_test += true_y
 
         # Initialize and return scorer
-        s = scorer(test_candidates, new_Y_test)
+        s = scorer(test_candidates, new_Y_test, gold_candidate_set)
         return s._score_categorical(predictions, train_marginals=None, b=0,
                                     display=display, already_predicted=True)

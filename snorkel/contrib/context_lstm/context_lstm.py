@@ -388,8 +388,8 @@ class ContextLSTM(Classifier):
         if "init_pretrained" in kwargs:
             del self.model_kwargs["init_pretrained"]
 
-    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
-              dev_ckpt_delay=0.75, save_dir='checkpoints', print_train_scores=False, **kwargs):
+    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, gold_candidate_set=None, print_freq=5,
+              dev_ckpt=True, dev_ckpt_delay=0.75, save_dir='checkpoints', print_train_scores=False, **kwargs):
 
         """
         Perform preprocessing of data, construct dataset-specific model, then
@@ -484,16 +484,6 @@ class ContextLSTM(Classifier):
             self.candidate_char_model.lookup.weight.data.copy_(torch.from_numpy(self.char_emb))
 
         b = 2 if self.bidirectional else 1
-        # self.combined_word_model = WordCharRNN(n_classes=n_classes, batch_size=self.batch_size,
-        #                                              num_tokens=self.word_dict.s,
-        #                                              embed_size=self.word_emb_dim,
-        #                                              input_size=self.word_emb_dim + b * self.lstm_hidden_dim,
-        #                                              lstm_hidden=self.lstm_hidden_dim,
-        #                                              attention=self.attention,
-        #                                              dropout=self.dropout,
-        #                                              bidirectional=self.bidirectional,
-        #                                              use_cuda=self.host_device in self.gpu)
-
         self.combined_word_model = CombinedRNN(n_classes=n_classes, batch_size=self.batch_size,
                                                num_word_tokens=self.word_dict.s,
                                                embed_size=self.word_emb_dim,
@@ -575,7 +565,7 @@ class ContextLSTM(Classifier):
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
-                    dev_scores = self.error_analysis(session, X_dev, Y_dev,
+                    dev_scores = self.error_analysis(session, X_dev, Y_dev, gold_candidate_set,
                                                      batch_size=self.batch_size)
                     dev_score = dev_scores[2]
 
