@@ -120,7 +120,8 @@ def merge_to_spansets_dev(X_dev, Y_dev):
 
     spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
     for spanset_chunk in spanset_chunks:
-        current_y = sparse.lil_matrix(Y_dev[[s[0] for s in spanset_chunk]]).T
+        indices = [Y_dev.candidate_index[s[1][-1].id] for s in spanset_chunk]
+        current_y = sparse.lil_matrix(Y_dev[indices]).T
         spanset_y.append(current_y)
         candidate_spansets.append(spanset_chunk)
     check_spanset_lengths(candidate_spansets, spanset_y)

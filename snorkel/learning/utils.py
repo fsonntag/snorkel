@@ -217,7 +217,7 @@ class MentionScorer(Scorer):
             candidates_by_types[candidate.__tablename__].append((i, candidate))
 
         for type, candidates in candidates_by_types.items():
-            candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start))
+            candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_start))
 
             counts.types.add(type)
             for type_i, (i, candidate) in enumerate(candidates):

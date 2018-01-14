@@ -1,7 +1,8 @@
 import numpy as np
-
 import torch
 from torch.autograd import Variable
+
+from snorkel.utils import overlapping_score
 
 
 class SymbolTable(object):
@@ -180,8 +181,119 @@ def merge_to_spansets(candidates, marginals):
     return candidate_spansets, marginal_spansets
 
 
+def merge_to_spansets_train(X, train_marginals, pred_marginals):
+    candidate_spansets = ([], [])
+    Y_pred = ([], [])
+
+    for pred_i, marginals in enumerate([train_marginals, pred_marginals]):
+        candidates = [(i, candidate) for i, candidate in enumerate(X)]
+        candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
+        current_spanset = []
+        cardinality = marginals.shape[1]
+        for value in range(cardinality - 1):
+            for i, (original_i, candidate) in enumerate(candidates):
+                if marginals[original_i].argmax() == value:
+                    if current_spanset == []:
+                        current_spanset.append((original_i, candidate))
+                    else:
+                        last_candidate = current_spanset[-1][1]
+                        if overlapping_score(last_candidate, candidate) > 0:
+                            current_spanset.append((original_i, candidate))
+                        else:
+                            spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
+                            for spanset_chunk in spanset_chunks:
+                                pred_y = y_from_spanset_chunk(spanset_chunk, marginals, value)
+                                candidate_spansets[pred_i].append(spanset_chunk)
+                                Y_pred[pred_i].append(pred_y)
+                            current_spanset = [(original_i, candidate)]
+
+            spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
+            for spanset_chunk in spanset_chunks:
+                pred_y = y_from_spanset_chunk(spanset_chunk, marginals, value)
+                candidate_spansets[pred_i].append(spanset_chunk)
+                Y_pred[pred_i].append(pred_y)
+            current_spanset = []
+
+        for i, (original_i, candidate) in enumerate(candidates):
+            if marginals[original_i].argmax() + 1 == cardinality:
+                candidate_spansets[pred_i].append([(original_i, candidate)])
+                Y_pred[pred_i].append(np.zeros(1))
+
+    spansets_true, spansets_pred = candidate_spansets
+    Y_true, Y_pred = Y_pred
+    assert len(spansets_true) == len(Y_true)
+    assert len(spansets_pred) == len(Y_pred)
+    return spansets_true, Y_true, spansets_pred, Y_pred
+
+
+def y_from_spanset_chunk(spanset_chunk, marginals, value):
+    spanset_marginals = np.asarray([marginals[s[0]] for s in spanset_chunk])
+    best_candidate_row = np.argmax(spanset_marginals[:, value])
+    pred_y = np.zeros(len(spanset_chunk))
+    pred_y[best_candidate_row] = value + 1
+
+    return pred_y
+
+
+def merge_to_spansets_dev(X, Y, marginals):
+    candidate_spansets = []
+    Y_true = []
+    Y_pred = []
+
+    candidates = [(i, candidate) for i, candidate in enumerate(X)]
+    candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
+    current_spanset = []
+    cardinality = marginals.shape[1]
+    for value in range(cardinality - 1):
+        for i, (original_i, candidate) in enumerate(candidates):
+            if marginals[original_i].argmax() == value:
+                if current_spanset == []:
+                    current_spanset.append((original_i, candidate))
+                else:
+                    last_candidate = current_spanset[-1][1]
+                    if overlapping_score(last_candidate, candidate) > 0:
+                        current_spanset.append((original_i, candidate))
+                    else:
+                        spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
+                        for spanset_chunk in spanset_chunks:
+                            true_y, pred_y = ys_from_spanset_chunk(spanset_chunk, Y, marginals, value)
+                            candidate_spansets.append(spanset_chunk)
+                            Y_true.append(true_y)
+                            Y_pred.append(pred_y)
+                        current_spanset = [(original_i, candidate)]
+
+        spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
+        for spanset_chunk in spanset_chunks:
+            true_y, pred_y = ys_from_spanset_chunk(spanset_chunk, Y, marginals, value)
+            candidate_spansets.append(spanset_chunk)
+            Y_true.append(true_y)
+            Y_pred.append(pred_y)
+        current_spanset = []
+
+    for i, (original_i, candidate) in enumerate(candidates):
+        if marginals[original_i].argmax() + 1 == cardinality:
+            candidate_spansets.append([(original_i, candidate)])
+            Y_true.append(np.ravel(Y[original_i].todense()))
+            Y_pred.append(np.zeros(1))
+
+    assert len(candidate_spansets) == len(Y_pred)
+    assert len(candidate_spansets) == len(Y_true)
+    return candidate_spansets, Y_true, Y_pred
+
+
+def ys_from_spanset_chunk(spanset_chunk, Y, marginals, value):
+    true_y = np.ravel([Y[s[0]].todense() for s in spanset_chunk])
+
+    spanset_marginals = np.asarray([marginals[s[0]] for s in spanset_chunk])
+    best_candidate_row = np.argmax(spanset_marginals[:, value])
+    pred_y = np.zeros(len(spanset_chunk))
+    pred_y[best_candidate_row] = value + 1
+
+    return true_y, pred_y
+
+
 def marginals_for_spanset(current_spanset, marginals):
     if not current_spanset:
         return
-    marginal_indices = np.asarray([css[0] for css in current_spanset])
+    marginal_indices = [css[0] for css in current_spanset]
     return marginals[marginal_indices]
