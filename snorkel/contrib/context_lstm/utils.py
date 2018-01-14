@@ -151,36 +151,6 @@ def change_lower_spanset_probabilities(current_spanset, marginals, type_label):
     marginals[non_max_indices, -1] = 1.
 
 
-def merge_to_spansets(candidates, marginals):
-    candidate_spansets = []
-    marginal_spansets = []
-    types = candidates[0].values[:-1]
-
-    candidates = [(i, candidate) for i, candidate in enumerate(candidates)]
-    candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
-
-    for type in types:
-        type_label = candidates[0][1].values.index(type)
-        current_spanset = []
-        for i, (original_i, candidate) in enumerate(candidates):
-            if np.argmax(marginals[original_i]) == type_label:
-                if current_spanset == []:
-                    current_spanset.append((original_i, candidate))
-                else:
-                    last_candidate = current_spanset[-1][1]
-                    if last_candidate[0].char_end > candidate[0].char_start:
-                        current_spanset.append((original_i, candidate))
-                    else:
-                        current_marginals = marginals_for_spanset(current_spanset, marginals)
-                        marginal_spansets.append(current_marginals)
-                        candidate_spansets.append(current_spanset)
-                        current_spanset = [(original_i, candidate)]
-        current_marginals = marginals_for_spanset(current_spanset, marginals)
-        marginal_spansets.append(current_marginals)
-        candidate_spansets.append(current_spanset)
-    return candidate_spansets, marginal_spansets
-
-
 def merge_to_spansets_train(X, train_marginals, pred_marginals):
     candidate_spansets = ([], [])
     Y_pred = ([], [])
@@ -217,22 +187,13 @@ def merge_to_spansets_train(X, train_marginals, pred_marginals):
         for i, (original_i, candidate) in enumerate(candidates):
             if marginals[original_i].argmax() + 1 == cardinality:
                 candidate_spansets[pred_i].append([(original_i, candidate)])
-                Y_pred[pred_i].append(np.zeros(1))
+                Y_pred[pred_i].append(np.zeros(1, dtype=np.int))
 
     spansets_true, spansets_pred = candidate_spansets
     Y_true, Y_pred = Y_pred
     assert len(spansets_true) == len(Y_true)
     assert len(spansets_pred) == len(Y_pred)
     return spansets_true, Y_true, spansets_pred, Y_pred
-
-
-def y_from_spanset_chunk(spanset_chunk, marginals, value):
-    spanset_marginals = np.asarray([marginals[s[0]] for s in spanset_chunk])
-    best_candidate_row = np.argmax(spanset_marginals[:, value])
-    pred_y = np.zeros(len(spanset_chunk))
-    pred_y[best_candidate_row] = value + 1
-
-    return pred_y
 
 
 def merge_to_spansets_dev(X, Y, marginals):
@@ -274,22 +235,44 @@ def merge_to_spansets_dev(X, Y, marginals):
         if marginals[original_i].argmax() + 1 == cardinality:
             candidate_spansets.append([(original_i, candidate)])
             Y_true.append(np.ravel(Y[original_i].todense()))
-            Y_pred.append(np.zeros(1))
+            Y_pred.append(np.zeros(1, dtype=np.int))
 
     assert len(candidate_spansets) == len(Y_pred)
     assert len(candidate_spansets) == len(Y_true)
     return candidate_spansets, Y_true, Y_pred
 
 
+def y_from_spanset_chunk(spanset_chunk, marginals, value):
+    spanset_marginals = np.asarray([marginals[s[0]] for s in spanset_chunk])
+    pred_y = pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value)
+    return pred_y
+
+
 def ys_from_spanset_chunk(spanset_chunk, Y, marginals, value):
     true_y = np.ravel([Y[s[0]].todense() for s in spanset_chunk])
-
     spanset_marginals = np.asarray([marginals[s[0]] for s in spanset_chunk])
-    best_candidate_row = np.argmax(spanset_marginals[:, value])
-    pred_y = np.zeros(len(spanset_chunk))
-    pred_y[best_candidate_row] = value + 1
-
+    pred_y = pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value)
     return true_y, pred_y
+
+
+def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
+    marginal_column = spanset_marginals[:, value]
+    best_candidate_row = None
+    if len(marginal_column) > 1:
+        two_max_indices = np.argpartition(marginal_column, -2)[-2:]
+        two_max_values = marginal_column[two_max_indices]
+        if abs(two_max_values[0] - two_max_values[1]) < 0.05:
+            span1 = spanset_chunk[two_max_indices[0]][1][0]
+            span2 = spanset_chunk[two_max_indices[1]][1][0]
+            if span1.char_end - span1.char_start > span2.char_end - span2.char_start:
+                best_candidate_row = two_max_indices[0]
+            else:
+                best_candidate_row = two_max_indices[1]
+    if best_candidate_row is None:
+        best_candidate_row = np.argmax(spanset_marginals[:, value])
+    pred_y = np.zeros(len(spanset_chunk), dtype=int)
+    pred_y[best_candidate_row] = value + 1
+    return pred_y
 
 
 def marginals_for_spanset(current_spanset, marginals):
