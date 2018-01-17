@@ -558,6 +558,8 @@ def load_marginals(session, X=None, split=0, cids_query=None, training=True, mar
         .filter(Candidate.split == split)
     # Ensure ordering by CID
     cids_query = cids_query.order_by(Candidate.id)
+    if marginal_limit:
+        cids_query = cids_query.limit(marginal_limit)
     cids_sub_query = cids_query.subquery('cids')
     try:
         cardinality = X.get_candidate(session, 0).cardinality

@@ -208,7 +208,7 @@ def merge_to_spansets_dev(X, Y, marginals):
     for value in range(cardinality - 1):
         for i, (original_i, candidate) in enumerate(candidates):
             if marginals[original_i].argmax() == value:
-                if current_spanset == []:
+                if not current_spanset:
                     current_spanset.append((original_i, candidate))
                 else:
                     last_candidate = current_spanset[-1][1]
@@ -234,7 +234,7 @@ def merge_to_spansets_dev(X, Y, marginals):
     for i, (original_i, candidate) in enumerate(candidates):
         if marginals[original_i].argmax() + 1 == cardinality:
             candidate_spansets.append([(original_i, candidate)])
-            Y_true.append(np.ravel(Y[original_i].todense()))
+            Y_true.append(np.ravel(Y[Y.candidate_index[candidate.id]].todense()))
             Y_pred.append(np.zeros(1, dtype=np.int))
 
     assert len(candidate_spansets) == len(Y_pred)
@@ -249,7 +249,7 @@ def y_from_spanset_chunk(spanset_chunk, marginals, value):
 
 
 def ys_from_spanset_chunk(spanset_chunk, Y, marginals, value):
-    true_y = np.ravel([Y[s[0]].todense() for s in spanset_chunk])
+    true_y = np.ravel([Y[Y.candidate_index[s[1].id]].todense() for s in spanset_chunk])
     spanset_marginals = np.asarray([marginals[s[0]] for s in spanset_chunk])
     pred_y = pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value)
     return true_y, pred_y

@@ -429,17 +429,11 @@ class ContextLSTM(Classifier):
             train_idxs = LabelBalancer(Y_train).get_train_idxs(self.rebalance,
                                                                rand_state=self.rand_state)
         else:
-            # In categorical setting, just remove unlabeled
-            diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
-            balanced_idxs = np.where(diffs < 1e-6)[0]
-            uncat_improvement = 0.05
-            for i in range(self.cardinality - 1):
-                Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
-            Y_train[balanced_idxs, -1] += uncat_improvement
             if self.rebalance:
                 train_idxs = LabelBalancer(Y_train, categorical=True) \
                     .rebalance_categorical_train_idxs(rebalance=self.rebalance, rand_state=self.rand_state)
             else:
+                diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
                 train_idxs = np.where(diffs > 0)[0]
 
         X_train = [X_train[j] for j in train_idxs] if self.representation \
@@ -451,7 +445,7 @@ class ContextLSTM(Classifier):
 
         if verbose:
             st = time()
-            print("[%s] n_train= %s" % (self.name, len(X_train)))
+            print("[%s] n_train = %s" % (self.name, len(X_train)))
 
         context_X_w_train, candidate_X_w_train, candidate_X_c_train = \
             self._preprocess_data(X_train, self.context_radius, extend=True)
