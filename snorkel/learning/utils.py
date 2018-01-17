@@ -110,12 +110,14 @@ class LabelBalancer(object):
         diffs = self.y.max(axis=1) - self.y.min(axis=1)
         balanced_idxs = np.where(diffs < 1e-6)[0]
         max_indices[balanced_idxs] = -1
+        print("Before rebalancing:")
         for i in range(cardinality):
             curr_column_pos = np.where(max_indices == i)[0]
             if len(curr_column_pos) == 0:
                 raise ValueError(f"No positive labels for row {i}.")
             row_pos.append(curr_column_pos)
             row_n.append(len(curr_column_pos))
+            print(f'{len(curr_column_pos)} samples for {i}')
         n_neg = row_n[0]
         n_pos = sum(row_n[1:])
         p = 0.5 if rebalance is True else rebalance
@@ -123,6 +125,9 @@ class LabelBalancer(object):
         row_pos[0] = rs.choice(row_pos[0], size=n_neg, replace=False)
         for i in range(1, len(row_pos)):
             row_pos[i] = rs.choice(row_pos[i], size=min(n_pos, row_n[i]), replace=False)
+        print("After rebalancing:")
+        for i, n in enumerate(row_pos):
+            print(f'{len(n)} samples for {i}')
         idxs = np.concatenate(row_pos)
         rs.shuffle(idxs)
         return idxs
