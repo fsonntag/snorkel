@@ -714,7 +714,7 @@ class ContextLSTM(Classifier):
         if verbose:
             print("[{0}] Model saved as <{1}>, only_param={2}".format(self.name, model_name, only_param))
 
-    def load(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False):
+    def load(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False, host_device='cpu'):
         """Load model from file and rebuild in new model"""
         model_name = model_name or self.name
         model_dir = os.path.join(save_dir, model_name)
@@ -723,6 +723,7 @@ class ContextLSTM(Classifier):
             # Load model kwargs needed to rebuild model
             with open(os.path.join(model_dir, "model_kwargs.pkl"), 'rb') as f:
                 model_kwargs = load(f)
+                model_kwargs['host_device'] = host_device
                 self._init_kwargs(**model_kwargs)
 
             if self.load_char_emb:
@@ -747,8 +748,14 @@ class ContextLSTM(Classifier):
                     d = load(f)
                     self.word_dict = d['word_dict']
 
-        self.combined_word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
-        self.candidate_char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
+        if self.host_device in self.gpu:
+            self.combined_word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
+            self.candidate_char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
+        else:
+            self.combined_word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'),
+                                                  lambda storage, loc: storage)
+            self.candidate_char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'),
+                                                   lambda storage, loc: storage)
 
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))
