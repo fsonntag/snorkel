@@ -704,9 +704,6 @@ class PCA(TFNoiseAwareModel):
         # Set method to reduce variance
         self.method = kwargs.get('method', None)
 
-        # Use spansets to reduce marginals
-        self.use_spansets_for_marginals = kwargs.get('use_spansets_for_marginals', False)
-
         print("===============================================")
         print(f"Number of learning epochs:         {self.n_epochs}")
         print(f"Learning rate:                     {self.lr}")
@@ -731,6 +728,8 @@ class PCA(TFNoiseAwareModel):
         print(f"Invariance method                  {self.method}")
         print(f"NER/1-arity candidates             {self.ner}")
         print("===============================================")
+
+        self.dev_score_opt = 0.0
 
         assert self.word_emb_path is not None
         if self.char:
@@ -906,8 +905,6 @@ class PCA(TFNoiseAwareModel):
 
         spanset_loss = nn.CrossEntropyLoss()
 
-        dev_score_opt = 0.0
-
         for idx in range(self.n_epochs):
             cost = 0.
             for x, y, y_pick in train_loader:
@@ -937,8 +934,8 @@ class PCA(TFNoiseAwareModel):
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
-                    dev_score_opt = dev_score
+                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > self.dev_score_opt:
+                    self.dev_score_opt = dev_score
                     self.save(save_dir=save_dir, only_param=True)
 
         # Conclude training
@@ -946,7 +943,7 @@ class PCA(TFNoiseAwareModel):
             print("[{0}] Training done ({1:.2f}s)".format(self.name, time() - st))
 
         # If checkpointing on, load last checkpoint (i.e. best on dev set)
-        if dev_ckpt and X_dev is not None and verbose and dev_score_opt > 0:
+        if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
             self.load(save_dir=save_dir, only_param=True)
 
     def _marginals_batch(self, X):

@@ -1,33 +1,35 @@
-import os
 import collections
-import numpy as np
-
+import os
 import warnings
-
-from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
-from snorkel.contrib.wclstm.utils import change_marginals_with_spanset_information
-from snorkel.learning.disc_learning import TFNoiseAwareModel
-from snorkel.models import Candidate
-
-from .utils import candidate_to_tokens, SymbolTable
-from six.moves.cPickle import dump, load
 from time import time
-import scipy
 
+import numpy as np
+import scipy
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 import torch.utils.data as data_utils
+from six.moves.cPickle import dump, load
+from torch.autograd import Variable
 
+from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
+from snorkel.learning.spanset_classifier import SpansetClassifier
 from snorkel.learning.utils import reshape_marginals, LabelBalancer
+from snorkel.models import Candidate
+from .utils import candidate_to_tokens, SymbolTable
 
 
-class PCA(TFNoiseAwareModel):
+class PCA(SpansetClassifier):
     name = 'PCA'
     representation = True
     gpu = ['gpu', 'GPU']
 
     """PCA for relation extraction"""
+
+    def __init__(self, n_threads=None, seed=123, **kwargs):
+        self.n_threads = n_threads
+        self.seed = seed
+        self.rand_state = np.random.RandomState()
+        super(PCA, self).__init__(**kwargs)
 
     def gen_dist_exp(self, length, decay, st, ed):
         ret = []
@@ -72,9 +74,9 @@ class PCA(TFNoiseAwareModel):
 
         context_seqs = []
         for c in candidates:
-            words    = candidate_to_tokens(c)
+            words = candidate_to_tokens(c)
             m1_start = c[0].get_word_start()
-            m1_end   = c[0].get_word_end() + 1
+            m1_end = c[0].get_word_end() + 1
 
             # optional mention 1 weight decay
             if self.kernel == 'exp':
@@ -87,18 +89,18 @@ class PCA(TFNoiseAwareModel):
 
             # IGNORE FOR NOW
             # optional expand mention by window size k
-            #k = self.window_size
-            #m1_start = max(m1_start - k, 0)
-            #m1_end = min(m1_end + k, len(words))
+            # k = self.window_size
+            # m1_start = max(m1_start - k, 0)
+            # m1_end = min(m1_end + k, len(words))
 
             # context sequences
-            sent_seq  = np.array(words)
-            m1_seq    = np.array(words[m1_start: m1_end])
-            left_seq  = np.array(words[0: m1_start])
+            sent_seq = np.array(words)
+            m1_seq = np.array(words[m1_start: m1_end])
+            left_seq = np.array(words[0: m1_start])
             right_seq = np.array(words[m1_end:])
 
             # enforce window constraints
-            left_seq  = left_seq[-max_window_len:]
+            left_seq = left_seq[-max_window_len:]
             right_seq = right_seq[:max_window_len]
 
             dist["S"].append(sent_seq.shape[0])
@@ -112,9 +114,9 @@ class PCA(TFNoiseAwareModel):
             else:
                 # TODO -- double Check!!!!!!
                 dm1 = dist_m1[m1_start: m1_end]
-                #dword_seq = dist_sent[m1_start + 1: m1_end]
+                # dword_seq = dist_sent[m1_start + 1: m1_end]
 
-                dleft_seq  = dist_sent[0: m1_start]
+                dleft_seq = dist_sent[0: m1_start]
                 dright_seq = dist_sent[m1_end:]
 
                 # enforce window constraints
@@ -141,62 +143,71 @@ class PCA(TFNoiseAwareModel):
 
         # HACK for NER/1-arity
         if len(candidates[0]) == 1:
-            return self._get_context_seqs(candidates, self.max_context_window_length)
+            data = self._get_context_seqs(candidates, self.max_context_window_length)
+        else:
+            data = []
+            for candidate in candidates:
+                words = candidate_to_tokens(candidate)
 
-        data = []
-        for candidate in candidates:
-            words = candidate_to_tokens(candidate)
+                # Word level embeddings
+                sent = np.array(words)
 
-            # Word level embeddings
-            sent = np.array(words)
+                k = self.window_size
 
-            k = self.window_size
+                m1_start = candidate[0].get_word_start()
+                m1_end = candidate[0].get_word_end() + 1
 
-            m1_start = candidate[0].get_word_start()
-            m1_end = candidate[0].get_word_end() + 1
+                if self.kernel == 'exp':
+                    dist_m1 = self.gen_dist_exp(len(words), self.decay, m1_start, m1_end)
+                elif self.kernel == 'linear':
+                    dist_m1 = self.gen_dist_linear(len(words), m1_start, m1_end, self.window_size)
+                    dist_m1_sent = self.gen_dist_linear(len(words), m1_start, m1_end,
+                                                        max(m1_start, len(words) - m1_end))
 
-            if self.kernel == 'exp':
-                dist_m1 = self.gen_dist_exp(len(words), self.decay, m1_start, m1_end)
-            elif self.kernel == 'linear':
-                dist_m1 = self.gen_dist_linear(len(words), m1_start, m1_end, self.window_size)
-                dist_m1_sent = self.gen_dist_linear(len(words), m1_start, m1_end, max(m1_start, len(words) - m1_end))
+                m1_start = max(m1_start - k, 0)
+                m1_end = min(m1_end + k, len(words))
 
-            m1_start = max(m1_start - k, 0)
-            m1_end = min(m1_end + k, len(words))
+                m2_start = candidate[1].get_word_start()
+                m2_end = candidate[1].get_word_end() + 1
 
-            m2_start = candidate[1].get_word_start()
-            m2_end = candidate[1].get_word_end() + 1
+                if self.kernel == 'exp':
+                    dist_m2 = self.gen_dist_exp(len(words), self.decay, m2_start, m2_end)
+                elif self.kernel == 'linear':
+                    dist_m2 = self.gen_dist_linear(len(words), m2_start, m2_end, self.window_size)
+                    dist_m2_sent = self.gen_dist_linear(len(words), m2_start, m2_end,
+                                                        max(m2_start, len(words) - m2_end))
 
-            if self.kernel == 'exp':
-                dist_m2 = self.gen_dist_exp(len(words), self.decay, m2_start, m2_end)
-            elif self.kernel == 'linear':
-                dist_m2 = self.gen_dist_linear(len(words), m2_start, m2_end, self.window_size)
-                dist_m2_sent = self.gen_dist_linear(len(words), m2_start, m2_end, max(m2_start, len(words) - m2_end))
+                m2_start = max(m2_start - k, 0)
+                m2_end = min(m2_end + k, len(words))
 
-            m2_start = max(m2_start - k, 0)
-            m2_end = min(m2_end + k, len(words))
+                if self.kernel == 'exp':
+                    dist_sent = np.maximum(dist_m1, dist_m2)
+                elif self.kernel == 'linear':
+                    dist_sent = np.maximum(dist_m1_sent, dist_m2_sent)
 
-            if self.kernel == 'exp':
-                dist_sent = np.maximum(dist_m1, dist_m2)
-            elif self.kernel == 'linear':
-                dist_sent = np.maximum(dist_m1_sent, dist_m2_sent)
+                m1 = np.array(words[m1_start: m1_end])
+                m2 = np.array(words[m2_start: m2_end])
+                st = min(candidate[0].get_word_end(), candidate[1].get_word_end())
+                ed = max(candidate[0].get_word_start(), candidate[1].get_word_start())
+                word_seq = np.array(words[st + 1: ed])
 
-            m1 = np.array(words[m1_start: m1_end])
-            m2 = np.array(words[m2_start: m2_end])
-            st = min(candidate[0].get_word_end(), candidate[1].get_word_end())
-            ed = max(candidate[0].get_word_start(), candidate[1].get_word_start())
-            word_seq = np.array(words[st + 1: ed])
+                order = 0 if m1_start < m2_start else 1
+                if self.kernel is None:
+                    data.append((sent, m1, m2, word_seq, order))
+                else:
+                    dm1 = dist_m1[m1_start: m1_end]
+                    dm2 = dist_m2[m2_start: m2_end]
+                    dword_seq = dist_sent[st + 1: ed]
+                    data.append((sent, m1, m2, word_seq, order, dist_sent, dm1, dm2, dword_seq))
 
-            order = 0 if m1_start < m2_start else 1
-            if self.kernel is None:
-                data.append((sent, m1, m2, word_seq, order))
-            else:
-                dm1 = dist_m1[m1_start: m1_end]
-                dm2 = dist_m2[m2_start: m2_end]
-                dword_seq = dist_sent[st + 1: ed]
-                data.append((sent, m1, m2, word_seq, order, dist_sent, dm1, dm2, dword_seq))
+        new_X_train = None
+        for i in range(len(data)):
+            feature = self.gen_feature(data[i])
+            if new_X_train is None:
+                new_X_train = torch.from_numpy(np.zeros((len(data), feature.size(1)), dtype=np.float)).float()
+            new_X_train[i] = feature
 
-        return data
+        return new_X_train
 
     def _check_max_sentence_length(self, ends, max_len=None):
         """Check that extraction arguments are within @self.max_sentence_length"""
@@ -300,7 +311,7 @@ class PCA(TFNoiseAwareModel):
         f = open(self.word_emb_path, 'r')
         fmt = "fastText" if self.word_emb_path.split(".")[-1] == "vec" else "txt"
 
-        for i,line in enumerate(f):
+        for i, line in enumerate(f):
 
             if fmt == "fastText" and i == 0:
                 continue
@@ -353,7 +364,8 @@ class PCA(TFNoiseAwareModel):
             z = torch.mul(z, torch.sign(torch.mul(z, theta)))
 
         if self.method == 'procrustes':
-            r = scipy.linalg.orthogonal_procrustes(z.numpy().T, self.F[:z.size(0) * z.size(1)].reshape(z.size(0), z.size(1)).T)[0]
+            r = scipy.linalg.orthogonal_procrustes(z.numpy().T,
+                                                   self.F[:z.size(0) * z.size(1)].reshape(z.size(0), z.size(1)).T)[0]
             z = torch.mm(torch.from_numpy(r), z)
 
         return z[self.l:, ]
@@ -368,7 +380,7 @@ class PCA(TFNoiseAwareModel):
             else:
                 x_ = torch.from_numpy(np.diag(y).dot(np.array([self.word_emb[_] for _ in map(f, x)])))
             mu = torch.mean(x_, 0, keepdim=True)
-            ret1[0, ] = mu / torch.norm(mu)
+            ret1[0,] = mu / torch.norm(mu)
             if self.r > 0 and len(x) > self.l:
                 ret1[1:, ] = self.get_singular_vectors(x_ - mu.repeat(x_.size(0), 1))
 
@@ -384,7 +396,7 @@ class PCA(TFNoiseAwareModel):
                     y_b = list(reversed(y))
                     x_ = torch.from_numpy(np.diag(y_b).dot(np.array([self.word_emb[_] for _ in map(f, x_b)])))
                 mu = torch.mean(x_, 0, keepdim=True)
-                ret1_b[0, ] = mu / torch.norm(mu)
+                ret1_b[0,] = mu / torch.norm(mu)
                 if self.r > 0 and len(x_b) > self.l:
                     ret1_b[1:, ] = self.get_singular_vectors(x_ - mu.repeat(x_.size(0), 1))
 
@@ -396,7 +408,7 @@ class PCA(TFNoiseAwareModel):
                 f = self.char_dict.lookup
                 x_ = torch.from_numpy(np.array([self.char_emb[_] for _ in map(f, list(x_c))]))
                 mu = torch.mean(x_, 0, keepdim=True)
-                ret2[0, ] = mu / torch.norm(mu)
+                ret2[0,] = mu / torch.norm(mu)
                 if self.r > 0 and len(x_c) > self.l:
                     ret2[1:, ] = self.get_singular_vectors(x_ - mu.repeat(x_.size(0), 1))
             if self.bidirectional:
@@ -407,7 +419,7 @@ class PCA(TFNoiseAwareModel):
                     f = self.char_dict.lookup
                     x_ = torch.from_numpy(np.array([self.char_emb[_] for _ in map(f, list(x_c_b))]))
                     mu = torch.mean(x_, 0, keepdim=True)
-                    ret2_b[0, ] = mu / torch.norm(mu)
+                    ret2_b[0,] = mu / torch.norm(mu)
                     if self.r > 0 and len(x_c_b) > self.l:
                         ret2_b[1:, ] = self.get_singular_vectors(x_ - mu.repeat(x_.size(0), 1))
 
@@ -440,18 +452,18 @@ class PCA(TFNoiseAwareModel):
         """
         if self.kernel is None:
             if self.sent_feat:
-                sent_pca  = self.get_principal_components(X[0])
-            m1_pca        = self.get_principal_components(X[1])
+                sent_pca = self.get_principal_components(X[0])
+            m1_pca = self.get_principal_components(X[1])
             if self.cont_feat:
-                left_pca  = self.get_principal_components(X[2])
+                left_pca = self.get_principal_components(X[2])
                 right_pca = self.get_principal_components(X[3])
         else:
 
             if self.sent_feat:
-                sent_pca  = self.get_principal_components(X[0], X[5])
-            m1_pca        = self.get_principal_components(X[1], X[6])
+                sent_pca = self.get_principal_components(X[0], X[5])
+            m1_pca = self.get_principal_components(X[1], X[6])
             if self.cont_feat:
-                left_pca  = self.get_principal_components(X[2], X[7])
+                left_pca = self.get_principal_components(X[2], X[7])
                 right_pca = self.get_principal_components(X[3], X[8])
 
         if self.sent_feat and self.cont_feat:
@@ -622,7 +634,7 @@ class PCA(TFNoiseAwareModel):
         self.max_sentence_length = kwargs.get('max_sentence_length', 100)
 
         # Set max context window length (Left/Right window around mention)
-        self.max_context_window_length = kwargs.get('max_context_window_length', 5 )
+        self.max_context_window_length = kwargs.get('max_context_window_length', 5)
 
         # Set kernel
         self.kernel = kwargs.get('kernel', None)
@@ -646,8 +658,8 @@ class PCA(TFNoiseAwareModel):
         # Set method to reduce variance
         self.method = kwargs.get('method', None)
 
-        # Use spansets to reduce marginals
-        self.use_spansets_for_marginals = kwargs.get('use_spansets_for_marginals', False)
+        # Set patience (number of epochs to wait without model improvement)
+        self.patience = kwargs.get('patience', 100)
 
         print("===============================================")
         print(f"Number of learning epochs:         {self.n_epochs}")
@@ -656,6 +668,7 @@ class PCA(TFNoiseAwareModel):
         print(f"Select top k principal components: {self.r}")
         print(f"Batch size:                        {self.batch_size}")
         print(f"Rebalance:                         {self.rebalance}")
+        print(f"Checkpoint Patience:               {self.patience}")
         print(f"Surrounding window size:           {self.window_size}")
         print(f"Use sentence sequence:             {self.sent_feat}")
         print(f"Use window sequence:               {self.cont_feat}")
@@ -674,6 +687,9 @@ class PCA(TFNoiseAwareModel):
         print(f"NER/1-arity candidates             {self.ner}")
         print("===============================================")
 
+        self.dev_score_opt = 0.0
+        self.dev_scores_opt = [0., 0., 0.]
+
         assert self.word_emb_path is not None
         if self.char:
             assert self.char_emb_path is not None
@@ -682,8 +698,8 @@ class PCA(TFNoiseAwareModel):
             self.create_dict(kwargs['init_pretrained'], word=True, char=self.char)
             del self.model_kwargs["init_pretrained"]
 
-    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
-              dev_ckpt_delay=0.75, save_dir='checkpoints', **kwargs):
+    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, gold_candidate_set=None, print_freq=5,
+              dev_ckpt=True, dev_ckpt_delay=0.25, save_dir='checkpoints', **kwargs):
 
         """
         Perform preprocessing of data, construct dataset-specific model, then
@@ -729,7 +745,8 @@ class PCA(TFNoiseAwareModel):
                     product1 = np.dot(f1, f1.T)
                     product1 = product1 - np.identity(product1.shape[0])
                     if self.char:
-                        f2 = self.F[:(self.l + self.r) * self.char_emb_dim].reshape(((self.l + self.r), self.char_emb_dim))
+                        f2 = self.F[:(self.l + self.r) * self.char_emb_dim].reshape(
+                            ((self.l + self.r), self.char_emb_dim))
                         product2 = np.dot(f2, f2.T)
                         product2 = product2 - np.identity(product2.shape[0])
                     if product1.any() == 0:
@@ -756,20 +773,11 @@ class PCA(TFNoiseAwareModel):
             train_idxs = LabelBalancer(Y_train).get_train_idxs(self.rebalance,
                                                                rand_state=self.rand_state)
         else:
-            # In categorical setting, just remove unlabeled
-            # diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
-            # train_idxs = np.where(diffs > 1e-6)[0]
-            # In categorical setting, just remove unlabeled
-            diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
-            balanced_idxs = np.where(diffs < 1e-6)[0]
-            uncat_improvement = 0.05
-            for i in range(self.cardinality - 1):
-                Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
-            Y_train[balanced_idxs, -1] += uncat_improvement
             if self.rebalance:
                 train_idxs = LabelBalancer(Y_train, categorical=True) \
                     .rebalance_categorical_train_idxs(rebalance=self.rebalance, rand_state=self.rand_state)
             else:
+                diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
                 train_idxs = np.where(diffs > 0)[0]
 
         X_train = [X_train[j] for j in train_idxs] if self.representation \
@@ -780,21 +788,15 @@ class PCA(TFNoiseAwareModel):
             st = time()
             print("[%s] n_train= %s" % (self.name, len(X_train)))
 
-        X_train = self._preprocess_data_combination(X_train)
-        if X_dev is not None:
-            X_dev = self._preprocess_data_combination(X_dev)
+        X_train_transformed = self._preprocess_data_combination(X_train)
+
+        X_dev_transformed = self._preprocess_data_combination(X_dev)
         Y_train = torch.from_numpy(Y_train).float()
 
-        new_X_train = None
-        for i in range(len(X_train)):
-            feature = self.gen_feature(X_train[i])
-            if new_X_train is None:
-                new_X_train = torch.from_numpy(np.zeros((len(X_train), feature.size(1)), dtype=np.float)).float()
-            new_X_train[i] = feature
-        data_set = data_utils.TensorDataset(new_X_train, Y_train)
+        data_set = data_utils.TensorDataset(X_train_transformed, Y_train)
         train_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
 
-        n_examples, n_features = new_X_train.size()
+        n_examples, n_features = X_train_transformed.size()
         n_classes = 1 if self.cardinality == 2 else self.cardinality
 
         self.model = self.build_model(n_features, n_classes)
@@ -823,8 +825,7 @@ class PCA(TFNoiseAwareModel):
             warnings.warn('Couldn\'t recognize loss, using MultiLabelSoftMarginLoss')
             loss = nn.MultiLabelSoftMarginLoss()
 
-
-        dev_score_opt = 0.0
+        last_epoch_opt = None
 
         for idx in range(self.n_epochs):
             cost = 0.
@@ -842,53 +843,75 @@ class PCA(TFNoiseAwareModel):
                         train_score = train_scores[-1]
                     else:
                         print('Calculating train scores...')
-                        train_scores = self.error_analysis(session, [x[-1] for x in X_train],
-                                                           (Y_train.max(dim=1)[1] + 1) % self.cardinality,
-                                                           display=True,
-                                                           batch_size=self.batch_size)
+                        train_scores = self.spanset_error_analysis(session, X_train,
+                                                                   X_train_transformed,
+                                                                   Y_train.numpy(),
+                                                                   display=True,
+                                                                   batch_size=self.batch_size,
+                                                                   prediction_type='train')
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
-                    dev_scores = self.error_analysis(session, [x[-1] for x in X_dev], Y_dev,
-                                                     batch_size=self.batch_size)
+                    dev_scores = self.spanset_error_analysis(session, X_dev,
+                                                             X_dev_transformed,
+                                                             Y_dev,
+                                                             gold_candidate_set,
+                                                             batch_size=self.batch_size,
+                                                             prediction_type='dev')
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
-                    dev_score_opt = dev_score
+                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > self.dev_score_opt:
+                    self.dev_score_opt = dev_score
+                    self.dev_scores_opt = dev_scores[:3]
                     self.save(save_dir=save_dir, only_param=True)
+                    last_epoch_opt = idx
+
+                if last_epoch_opt is not None and (idx - last_epoch_opt > self.patience) and (
+                        dev_ckpt and idx > dev_ckpt_delay * self.n_epochs):
+                    print("[{}] No model improvement after {} epochs, halting".format(self.name, idx - last_epoch_opt))
+                    break
 
         # Conclude training
         if verbose:
             print("[{0}] Training done ({1:.2f}s)".format(self.name, time() - st))
 
         # If checkpointing on, load last checkpoint (i.e. best on dev set)
-        if dev_ckpt and X_dev is not None and verbose and dev_score_opt > 0:
+        if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
             self.load(save_dir=save_dir, only_param=True)
 
     def _marginals_batch(self, X):
-        new_X_train = None
-        X = self._preprocess_data_combination(X)
+        all_marginals = self.predict(self.model, X)
 
-        for i in range(len(X)):
-            feature = self.gen_feature(X[i])
-            if new_X_train is None:
-                new_X_train = torch.from_numpy(np.zeros((len(X), feature.size(1))))
-            new_X_train[i] = feature
+        return all_marginals
 
-        new_X_train = new_X_train.float()
+    def marginals(self, X, batch_size=None, **kwargs):
+        """
+        Compute the marginals for the given candidates X.
+        Split into batches to avoid OOM errors, then call _marginals_batch;
+        defaults to no batching.
+        """
+        if batch_size is None:
+            all_marginals = self._marginals_batch(X)
+        else:
+            N = len(X) if self.representation else X.shape[0]
 
-        all_marginals = self.predict(self.model, new_X_train)
+            # Iterate over batches
+            batch_marginals = []
+            for b in range(0, N, batch_size):
+                batch = self._marginals_batch(X[b:b + batch_size])
+                # Note: Make sure a list is returned!
+                if min(b + batch_size, N) - b == 1:
+                    batch = np.array([batch])
+                batch_marginals.append(batch)
+            all_marginals = np.concatenate(batch_marginals)
 
-        if self.use_spansets_for_marginals:
-            change_marginals_with_spanset_information([x[-1] for x in X], all_marginals)
         return all_marginals
 
     def embed(self, X):
-
         new_X_train = None
         X = self._preprocess_data_combination(X)
 
