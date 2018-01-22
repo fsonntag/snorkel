@@ -646,7 +646,6 @@ class ContextLSTM(SpansetClassifier):
             all_marginals = self._marginals_batch(X)
         else:
             N = len(X[0]) if self.representation else X[0].shape[0]
-            n_batches = int(np.floor(N / batch_size))
 
             # Iterate over batches
             batch_marginals = []

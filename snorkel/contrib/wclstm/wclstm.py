@@ -628,8 +628,7 @@ class WCLSTM(SpansetClassifier):
         if batch_size is None:
             all_marginals = self._marginals_batch(X)
         else:
-            N = len(X) if self.representation else X.shape[0]
-            n_batches = int(np.floor(N / batch_size))
+            N = len(X[0]) if self.representation else X[0].shape[0]
 
             # Iterate over batches
             batch_marginals = []
