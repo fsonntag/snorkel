@@ -274,14 +274,14 @@ def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
         if abs(three_max_values[1] - three_max_values[2]) < 0.25:
             span1 = spanset_chunk[three_max_indices[1]][1][0]
             span2 = spanset_chunk[three_max_indices[2]][1][0]
-            if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start) < 8:
+            if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start):
                 best_candidate_row = 1
             else:
                 best_candidate_row = 2
             if abs(three_max_values[best_candidate_row] - three_max_values[0]) < 0.25:
                 span1 = spanset_chunk[three_max_indices[0]][1][0]
                 span2 = spanset_chunk[three_max_indices[best_candidate_row]][1][0]
-                if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start) < 8:
+                if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start):
                     best_candidate_row = three_max_indices[0]
                 else:
                     best_candidate_row = three_max_indices[best_candidate_row]
@@ -293,7 +293,7 @@ def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
         if abs(four_max_values[1] - four_max_values[2]) < 0.25:
             span1 = spanset_chunk[four_max_indices[2]][1][0]
             span2 = spanset_chunk[four_max_indices[3]][1][0]
-            if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start) < 8:
+            if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start):
                 best_candidate_row = 2
             else:
                 best_candidate_row = 3
@@ -301,7 +301,7 @@ def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
                 if abs(four_max_values[best_candidate_row] - four_max_values[i]) < 0.25:
                     span1 = spanset_chunk[four_max_indices[i]][1][0]
                     span2 = spanset_chunk[four_max_indices[best_candidate_row]][1][0]
-                    if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start) < 8:
+                    if 0 < (span1.char_end - span1.char_start) - (span2.char_end - span2.char_start):
                         best_candidate_row = i
                     else:
                         best_candidate_row = best_candidate_row
