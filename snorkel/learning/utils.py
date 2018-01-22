@@ -453,7 +453,8 @@ class MentionScorer(Scorer):
                         counts.fn_ov[(candidate, ov_candidate)] = ov_score
                         counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
 
-                scores = scores_from_counts(counts, "Corpus Recall-adjusted Scores", weighted=True, print_scores=display)
+                scores = scores_from_counts(counts, "Corpus Recall-adjusted Scores", weighted=True,
+                                            print_scores=display)
 
             # If training and test marginals provided print calibration plots
             if train_marginals is not None and test_marginals is not None:
@@ -690,13 +691,14 @@ class GridSearch(object):
     :param save_dir: Note that checkpoints will be saved in save_dir/grid_search
     """
 
-    def __init__(self, model_class, parameter_dict, X_train, Y_train=None,
+    def __init__(self, model_class, parameter_dict, X_train, Y_train=None, session=None,
                  model_class_params={}, model_hyperparams={}, save_dir='checkpoints'):
         self.model_class = model_class
         self.parameter_dict = parameter_dict
-        self.param_names = parameter_dict.keys()
+        self.param_names = list(parameter_dict.keys())
         self.X_train = X_train
         self.Y_train = Y_train
+        self.session = session
         self.model_class_params = model_class_params
         self.model_hyperparams = model_hyperparams
         self.save_dir = os.path.join(save_dir, 'grid_search')
@@ -704,7 +706,7 @@ class GridSearch(object):
     def search_space(self):
         return product(*[self.parameter_dict[pn] for pn in self.param_names])
 
-    def fit(self, X_valid, Y_valid, b=0.5, beta=1, set_unlabeled_as_neg=True,
+    def fit(self, X_valid, Y_valid, gold_candidate_set=None, b=0.5, beta=1, set_unlabeled_as_neg=True,
             n_threads=1, eval_batch_size=None):
         """
         Runs grid search, constructing a new instance of model_class for each
@@ -719,16 +721,16 @@ class GridSearch(object):
         :param eval_batch_size: The batch_size for model evaluation
         """
         if n_threads > 1:
-            opt_model, run_stats = self._fit_mt(X_valid, Y_valid, b=b,
+            opt_model, run_stats = self._fit_mt(X_valid, Y_valid, gold_candidate_set=gold_candidate_set, b=b,
                                                 beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
                                                 n_threads=n_threads, eval_batch_size=eval_batch_size)
         else:
-            opt_model, run_stats = self._fit_st(X_valid, Y_valid, b=b,
+            opt_model, run_stats = self._fit_st(X_valid, Y_valid, gold_candidate_set=gold_candidate_set, b=b,
                                                 beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
                                                 eval_batch_size=eval_batch_size)
         return opt_model, run_stats
 
-    def _fit_st(self, X_valid, Y_valid, b=0.5, beta=1,
+    def _fit_st(self, X_valid, Y_valid, gold_candidate_set=None, b=0.5, beta=1,
                 set_unlabeled_as_neg=True, eval_batch_size=None):
         """Single-threaded implementation of `GridSearch.fit`."""
         # Iterate over the param values
@@ -737,6 +739,7 @@ class GridSearch(object):
         for k, param_vals in enumerate(self.search_space()):
             start_ts = time.time()
             hps = self.model_hyperparams.copy()
+            hps['session'] = self.session
 
             # Initiate the model from scratch each time
             # Some models may have seed set in the init procedure
@@ -747,9 +750,8 @@ class GridSearch(object):
             for pn, pv in zip(self.param_names, param_vals):
                 hps[pn] = pv
             print("=" * 60)
-            NUMTYPES = [float, int, np.float64]
             print("[%d] Testing %s" % (k + 1, ', '.join([
-                "%s = %s" % (pn, ("%0.2e" % pv) if type(pv) in NUMTYPES else pv)
+                f"{pn} = {pv}"
                 for pn, pv in zip(self.param_names, param_vals)
             ])))
             print("=" * 60)
@@ -768,6 +770,7 @@ class GridSearch(object):
                 try:
                     if X_valid is not None:
                         model.train(*train_args, X_dev=X_valid, Y_dev=Y_valid,
+                                    gold_candidate_set=gold_candidate_set,
                                     save_dir=self.save_dir, **hps)
                     else:
                         model.train(*train_args, **hps)
@@ -775,17 +778,9 @@ class GridSearch(object):
                 except Exception as e:
                     print(e)
 
-            # Test the model
-            run_scores = model.score(X_valid, Y_valid, b=b, beta=beta,
-                                     set_unlabeled_as_neg=set_unlabeled_as_neg,
-                                     batch_size=eval_batch_size)
-
-            if model.cardinality > 2:
-                run_score, run_score_label = run_scores, "Accuracy"
-                run_scores = [run_score]
-            else:
-                run_score = run_scores[-1]
-                run_score_label = "F-{0} Score".format(beta)
+            run_scores = model.dev_scores_opt
+            run_score = model.dev_score_opt
+            run_score_label = "F-{0} Score".format(beta)
 
             # Add scores to running stats, print, and set as optimal if best
             print("[{0}] {1}: {2}".format(model.name, run_score_label, run_score))
@@ -804,15 +799,14 @@ class GridSearch(object):
 
         # Return optimal model & DataFrame of scores
         f_score = 'F-{0}'.format(beta)
-        run_score_labels = ['Acc.'] if opt_model.cardinality > 2 else \
-            ['Prec.', 'Rec.', f_score]
-        sort_by = 'Acc.' if opt_model.cardinality > 2 else f_score
+        run_score_labels = ['Prec.', 'Rec.', f_score]
+        sort_by = f_score
         self.results = DataFrame.from_records(
             run_stats, columns=self.param_names + run_score_labels
         ).sort_values(by=sort_by, ascending=False)
         return opt_model, self.results
 
-    def _fit_mt(self, X_valid, Y_valid, b=0.5, beta=1,
+    def _fit_mt(self, X_valid, Y_valid, gold_candidate_set=None, b=0.5, beta=1,
                 set_unlabeled_as_neg=True, n_threads=2, eval_batch_size=None):
         """Multi-threaded implementation of `GridSearch.fit`."""
         # First do a preprocessing pass over the data to make sure it is all
@@ -959,7 +953,7 @@ class RandomSearch(GridSearch):
     :param seed: A seed for the GridSearch instance
     """
 
-    def __init__(self, model_class, parameter_dict, X_train, Y_train=None, n=10,
+    def __init__(self, model_class, parameter_dict, X_train, Y_train=None, session=None, n=10,
                  model_class_params={}, model_hyperparams={}, seed=123,
                  save_dir='checkpoints', manual_param_grid=None):
         """Search a random sample of size n from a parameter grid"""
@@ -969,7 +963,7 @@ class RandomSearch(GridSearch):
         self.seed = seed
         self.manual_param_grid = manual_param_grid
         super(RandomSearch, self).__init__(model_class, parameter_dict, X_train,
-                                           Y_train=Y_train, model_class_params=model_class_params,
+                                           Y_train=Y_train, session=session, model_class_params=model_class_params,
                                            model_hyperparams=model_hyperparams, save_dir=save_dir)
 
     def search_space(self):

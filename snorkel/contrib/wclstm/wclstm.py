@@ -366,6 +366,7 @@ class WCLSTM(SpansetClassifier):
         print("===============================================")
 
         self.dev_score_opt = 0.0
+        self.dev_scores_opt = [0., 0., 0.]
 
         if self.load_word_emb:
             assert self.word_emb_path is not None
@@ -376,7 +377,7 @@ class WCLSTM(SpansetClassifier):
             del self.model_kwargs["init_pretrained"]
 
     def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, gold_candidate_set=None, print_freq=5,
-              dev_ckpt=True, dev_ckpt_delay=0.75, save_dir='checkpoints', print_train_scores=False, **kwargs):
+              dev_ckpt=True, dev_ckpt_delay=0.25, save_dir='checkpoints', print_train_scores=False, **kwargs):
 
         """
         Perform preprocessing of data, construct dataset-specific model, then
@@ -549,8 +550,9 @@ class WCLSTM(SpansetClassifier):
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > self.dev_score_opt:
+                if X_dev is not None and dev_ckpt and idx + 1 > dev_ckpt_delay * self.n_epochs and dev_score > self.dev_score_opt:
                     self.dev_score_opt = dev_score
+                    self.dev_scores_opt = dev_scores[:3]
                     self.save(save_dir=save_dir, only_param=True)
                     last_epoch_opt = idx
 
