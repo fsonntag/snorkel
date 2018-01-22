@@ -140,7 +140,7 @@ class LabelBalancer(object):
 class Scorer(object):
     """Abstract type for scorers"""
 
-    def __init__(self, test_candidates, test_labels, gold_candidate_set=None):
+    def __init__(self, test_candidates, test_labels, output_path=None, gold_candidate_set=None):
         """
         :param test_candidates: A *list of Candidates* corresponding to
             test_labels
@@ -151,6 +151,7 @@ class Scorer(object):
         """
         self.test_candidates = test_candidates
         self.test_labels = test_labels
+        self.output_path = output_path
         self.gold_candidate_set = gold_candidate_set
 
     def _get_cardinality(self, marginals):
@@ -372,6 +373,8 @@ class MentionScorer(Scorer):
         :param display: show calibration plots?
         """
         already_predicted = kwargs.get('already_predicted', False)
+        prediction_type = kwargs.get('prediction_type', None)
+
         test_label_array = []
         counts = Counts()
 
@@ -428,7 +431,7 @@ class MentionScorer(Scorer):
                             counts.fn_ov[(candidate, ov_candidate)] = ov_score
                             counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
 
-        self.write_counts(counts)
+        self.write_counts(counts, prediction_type=prediction_type)
 
         # Calculate scores unadjusted for TPs not in our candidate set
         scores = scores_from_counts(counts, "Scores (Un-adjusted)", weighted=True, print_scores=display)
@@ -464,8 +467,14 @@ class MentionScorer(Scorer):
 
         return scores
 
-    def write_counts(self, counts: Counts):
+    def write_counts(self, counts: Counts, prediction_type=None):
         out_path = Path('classifier_stats')
+        if self.output_path:
+            self.output_path.mkdir(exist_ok=True)
+            out_path = self.output_path / out_path
+        out_path.mkdir(exist_ok=True)
+        if prediction_type:
+            out_path = out_path / prediction_type
         out_path.mkdir(exist_ok=True)
         for type_dict, count_type in [(counts.t_fp, 'fp'), (counts.t_fn, 'fn')]:
             for type, candidates in type_dict.items():
@@ -707,7 +716,7 @@ class GridSearch(object):
         return product(*[self.parameter_dict[pn] for pn in self.param_names])
 
     def fit(self, X_valid, Y_valid, gold_candidate_set=None, b=0.5, beta=1, set_unlabeled_as_neg=True,
-            n_threads=1, eval_batch_size=None):
+            output_path=None, n_threads=1, eval_batch_size=None):
         """
         Runs grid search, constructing a new instance of model_class for each
         hyperparameter combination, training on (self.X_train, self.Y_train),
@@ -727,10 +736,12 @@ class GridSearch(object):
         else:
             opt_model, run_stats = self._fit_st(X_valid, Y_valid, gold_candidate_set=gold_candidate_set, b=b,
                                                 beta=beta, set_unlabeled_as_neg=set_unlabeled_as_neg,
+                                                output_path=output_path,
                                                 eval_batch_size=eval_batch_size)
         return opt_model, run_stats
 
     def _fit_st(self, X_valid, Y_valid, gold_candidate_set=None, b=0.5, beta=1,
+                output_path=None,
                 set_unlabeled_as_neg=True, eval_batch_size=None):
         """Single-threaded implementation of `GridSearch.fit`."""
         # Iterate over the param values
@@ -743,8 +754,9 @@ class GridSearch(object):
 
             # Initiate the model from scratch each time
             # Some models may have seed set in the init procedure
-            model = self.model_class(**self.model_class_params)
+            model = self.model_class(**self.model_class_params, output_path=output_path)
             model_name = '{0}_{1}'.format(model.name, k)
+            model.output_path = output_path / model_name
 
             # Set the new hyperparam configuration to test
             for pn, pv in zip(self.param_names, param_vals):

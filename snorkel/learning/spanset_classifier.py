@@ -7,6 +7,10 @@ from snorkel.learning.spanset_utils import *
 
 class SpansetClassifier(Classifier):
 
+    def __init__(self, output_path=None, **kwargs):
+        self.output_path = output_path
+        super(SpansetClassifier, self).__init__(**kwargs)
+
     def spanset_error_analysis(self, session, X_test, X_test_transformed, Y_test,
                                gold_candidate_set=None, b=0.5, set_unlabeled_as_neg=True, display=True,
                                scorer=MentionScorer, **kwargs):
@@ -27,11 +31,11 @@ class SpansetClassifier(Classifier):
         """
         # Compute the marginals
 
-        train_analysis = kwargs.get('train_analysis', False)
+        prediction_type = kwargs.get('prediction_type', False)
 
         test_marginals = self.marginals(X_test_transformed, **kwargs)
 
-        if train_analysis:
+        if prediction_type == 'train':
             spansets_true, Y_true, spansets_pred, Y_pred = merge_to_spansets_train(X_test, Y_test, test_marginals)
             spansets_true, Y_true, spansets_pred, Y_pred = list(chain.from_iterable(spansets_true)), np.hstack(Y_true), \
                                                            list(chain.from_iterable(spansets_pred)), np.hstack(Y_pred)
@@ -51,7 +55,7 @@ class SpansetClassifier(Classifier):
             X_test = [x[1] for x in X_test]
 
         # Initialize and return scorer
-        s = scorer(X_test, Y_test, gold_candidate_set)
+        s = scorer(X_test, Y_test, gold_candidate_set=gold_candidate_set, output_path=self.output_path)
         return s._score_categorical(Y_pred, train_marginals=None, b=b,
                                     display=display, set_unlabeled_as_neg=set_unlabeled_as_neg,
-                                    already_predicted=True)
+                                    already_predicted=True, prediction_type=prediction_type)

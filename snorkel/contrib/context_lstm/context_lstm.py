@@ -546,7 +546,7 @@ class ContextLSTM(SpansetClassifier):
                                                                    Y_train.numpy(),
                                                                    display=True,
                                                                    batch_size=self.batch_size,
-                                                                   train_analysis=True)
+                                                                   prediction_type='train')
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
@@ -555,7 +555,8 @@ class ContextLSTM(SpansetClassifier):
                                                              X_dev_transformed,
                                                              Y_dev,
                                                              gold_candidate_set,
-                                                             batch_size=self.batch_size)
+                                                             batch_size=self.batch_size,
+                                                             prediction_type='dev')
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
