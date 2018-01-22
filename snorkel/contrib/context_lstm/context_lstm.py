@@ -1,6 +1,5 @@
 import os
 import warnings
-from itertools import chain
 from time import time
 
 import torch.utils.data as data_utils
@@ -9,11 +8,11 @@ from six.moves.cPickle import dump, load
 from snorkel.contrib.context_lstm.layers import *
 from snorkel.contrib.context_lstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
 from snorkel.contrib.context_lstm.utils import *
-from snorkel.learning.classifier import Classifier
-from snorkel.learning.utils import reshape_marginals, LabelBalancer, MentionScorer
+from snorkel.learning.spanset_classifier import SpansetClassifier
+from snorkel.learning.utils import reshape_marginals, LabelBalancer
 
 
-class ContextLSTM(Classifier):
+class ContextLSTM(SpansetClassifier):
     name = 'ContextLSTM'
     representation = True
     char_marker = ['<', '>']
@@ -22,7 +21,7 @@ class ContextLSTM(Classifier):
     # Set unknown
     unknown_symbol = 1
 
-    """Hierarchy Bi-LSTM for relation extraction"""
+    """Hierarchy Bi-LSTM for entity extraction"""
 
     def __init__(self, n_threads=None, seed=123, **kwargs):
         self.n_threads = n_threads
@@ -80,15 +79,6 @@ class ContextLSTM(Classifier):
                 char_seq.append(np.array(list(map(g, word_char_seq))))
             candidate_char_seq_data.append(char_seq)
         return np.array(context_word_seq_data), np.array(candidate_word_seq_data), np.array(candidate_char_seq_data)
-
-    def _check_max_sentence_length(self, ends, max_len=None):
-        """Check that extraction arguments are within @self.max_len"""
-        mx = max_len or self.max_sentence_length
-        for i, end in enumerate(ends):
-            if end >= mx:
-                w = "Candidate {0} has argument past max length for model:"
-                info = "[arg ends at index {0}; max len {1}]".format(end, mx)
-                warnings.warn('\t'.join([w.format(i), info]))
 
     def create_dict(self, splits, word=True, char=True):
         """Create global dict from user input"""
@@ -357,9 +347,6 @@ class ContextLSTM(Classifier):
         # Set patience (number of epochs to wait without model improvement)
         self.patience = kwargs.get('patience', 100)
 
-        # Use spansets to reduce marginals
-        self.use_spansets_for_marginals = kwargs.get('use_spansets_for_marginals', False)
-
         print("===============================================")
         print(f"Number of learning epochs:     {self.n_epochs}")
         print(f"Learning rate:                 {self.lr}")
@@ -380,6 +367,8 @@ class ContextLSTM(Classifier):
         print(f"Word embedding:                {self.word_emb_path}")
         print(f"Char embedding:                {self.char_emb_path}")
         print("===============================================")
+
+        self.dev_score_opt = 0.0
 
         if self.load_word_emb:
             assert self.word_emb_path is not None
@@ -439,9 +428,6 @@ class ContextLSTM(Classifier):
         X_train = [X_train[j] for j in train_idxs] if self.representation \
             else X_train[train_idxs, :]
         Y_train = Y_train[train_idxs]
-
-        if self.use_spansets_for_marginals:
-            change_marginals_with_spanset_information(X_train, Y_train)
 
         if verbose:
             st = time()
@@ -528,7 +514,6 @@ class ContextLSTM(Classifier):
             warnings.warn('Couldn\'t recognize loss, using MultiLabelSoftMarginLoss')
             loss = nn.MultiLabelSoftMarginLoss()
 
-        dev_score_opt = 0.0
         last_epoch_opt = None
 
         for idx in range(self.n_epochs):
@@ -555,28 +540,28 @@ class ContextLSTM(Classifier):
                         train_score = train_scores[-1]
                     else:
                         print('Calculating train scores...')
-                        train_scores = self.error_analysis(session, X_train,
-                                                           X_train_transformed,
-                                                           Y_train.numpy(),
-                                                           display=True,
-                                                           batch_size=self.batch_size,
-                                                           train_analysis=True)
+                        train_scores = self.spanset_error_analysis(session, X_train,
+                                                                   X_train_transformed,
+                                                                   Y_train.numpy(),
+                                                                   display=True,
+                                                                   batch_size=self.batch_size,
+                                                                   train_analysis=True)
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
-                    dev_scores = self.error_analysis(session, X_dev,
-                                                     X_dev_transformed,
-                                                     Y_dev,
-                                                     gold_candidate_set,
-                                                     batch_size=self.batch_size)
+                    dev_scores = self.spanset_error_analysis(session, X_dev,
+                                                             X_dev_transformed,
+                                                             Y_dev,
+                                                             gold_candidate_set,
+                                                             batch_size=self.batch_size)
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
-                    dev_score_opt = dev_score
+                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > self.dev_score_opt:
+                    self.dev_score_opt = dev_score
                     self.save(save_dir=save_dir, only_param=True)
                     last_epoch_opt = idx
 
@@ -590,7 +575,7 @@ class ContextLSTM(Classifier):
             print("[{0}] Training done ({1:.2f}s)".format(self.name, time() - st))
 
         # If checkpointing on, load last checkpoint (i.e. best on dev set)
-        if dev_ckpt and X_dev is not None and verbose and dev_score_opt > 0:
+        if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
             self.load(save_dir=save_dir, only_param=True)
 
     def _marginals_batch(self, X):
@@ -599,7 +584,6 @@ class ContextLSTM(Classifier):
         self.combined_word_model.eval()
 
         context_X_w, candidate_X_w, candidate_X_c = X[0], X[1], X[2]
-        # context_X_w, candidate_X_w, candidate_X_c = self._preprocess_data(X, self.context_radius, extend=False)
         sigmoid = nn.Sigmoid()
 
         y = np.array([])
@@ -671,9 +655,6 @@ class ContextLSTM(Classifier):
                     batch = np.array([batch])
                 batch_marginals.append(batch)
             all_marginals = np.concatenate(batch_marginals)
-
-        if self.use_spansets_for_marginals:
-            change_marginals_with_spanset_information(X, all_marginals)
 
         return all_marginals
 
@@ -759,52 +740,3 @@ class ContextLSTM(Classifier):
 
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))
-
-    def error_analysis(self, session, X_test, X_test_transformed, Y_test,
-                       gold_candidate_set=None, b=0.5, set_unlabeled_as_neg=True, display=True,
-                       scorer=MentionScorer, **kwargs):
-        """
-        Prints full score analysis using the Scorer class, and then returns the
-        a tuple of sets conatining the test candidates bucketed for error
-        analysis, i.e.:
-            * For binary: TP, FP, TN, FN
-            * For categorical: correct, incorrect
-
-        :param X_test: The input test candidates, as a list or annotation matrix
-        :param Y_test: The input test labels, as a list or annotation matrix
-        :param gold_candidate_set: Full set of TPs in the test set
-        :param b: Decision boundary *for binary setting only*
-        :param set_unlabeled_as_neg: Whether to map 0 labels -> -1, *binary setting*
-        :param display: Print score report
-        :param scorer: The Scorer sub-class to use
-        """
-        # Compute the marginals
-
-        train_analysis = kwargs.get('train_analysis', False)
-
-        test_marginals = self.marginals(X_test_transformed, **kwargs)
-
-        if train_analysis:
-            spansets_true, Y_true, spansets_pred, Y_pred = merge_to_spansets_train(X_test, Y_test, test_marginals)
-            spansets_true, Y_true, spansets_pred, Y_pred = list(chain.from_iterable(spansets_true)), np.hstack(Y_true), \
-                                                           list(chain.from_iterable(spansets_pred)), np.hstack(Y_pred)
-            X_test1, Y_test = (list(t) for t in zip(*sorted(zip(spansets_true, Y_true),
-                                                            key=lambda x: (x[0][1][0].sentence_id,
-                                                                           x[0][1][0].char_start,
-                                                                           x[0][1][0].char_end))))
-            X_test2, Y_pred = (list(t) for t in zip(*sorted(zip(spansets_pred, Y_pred),
-                                                            key=lambda x: (x[0][1][0].sentence_id,
-                                                                           x[0][1][0].char_start,
-                                                                           x[0][1][0].char_end))))
-            assert X_test1 == X_test2
-            X_test = [x[1] for x in X_test1]
-        else:
-            X_test, Y_test, Y_pred = merge_to_spansets_dev(X_test, Y_test, test_marginals)
-            X_test, Y_test, Y_pred = list(chain.from_iterable(X_test)), np.hstack(Y_test), np.hstack(Y_pred)
-            X_test = [x[1] for x in X_test]
-
-        # Initialize and return scorer
-        s = scorer(X_test, Y_test, gold_candidate_set)
-        return s._score_categorical(Y_pred, train_marginals=None, b=b,
-                                    display=display, set_unlabeled_as_neg=set_unlabeled_as_neg,
-                                    already_predicted=True)

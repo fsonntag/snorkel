@@ -8,11 +8,11 @@ from six.moves.cPickle import dump, load
 from snorkel.contrib.wclstm.layers import *
 from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
 from snorkel.contrib.wclstm.utils import *
-from snorkel.learning.classifier import Classifier
+from snorkel.learning.spanset_classifier import SpansetClassifier
 from snorkel.learning.utils import reshape_marginals, LabelBalancer
 
 
-class WCLSTM(Classifier):
+class WCLSTM(SpansetClassifier):
     name = 'WCLSTM'
     representation = True
     char_marker = ['<', '>']
@@ -344,9 +344,6 @@ class WCLSTM(Classifier):
         # Set patience (number of epochs to wait without model improvement)
         self.patience = kwargs.get('patience', 100)
 
-        # Use spansets to reduce marginals
-        self.use_spansets_for_marginals = kwargs.get('use_spansets_for_marginals', False)
-
         print("===============================================")
         print(f"Number of learning epochs:     {self.n_epochs}")
         print(f"Learning rate:                 {self.lr}")
@@ -368,6 +365,8 @@ class WCLSTM(Classifier):
         print(f"Char embedding:                {self.char_emb_path}")
         print("===============================================")
 
+        self.dev_score_opt = 0.0
+
         if self.load_word_emb:
             assert self.word_emb_path is not None
         if self.load_char_emb:
@@ -376,8 +375,8 @@ class WCLSTM(Classifier):
         if "init_pretrained" in kwargs:
             del self.model_kwargs["init_pretrained"]
 
-    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, print_freq=5, dev_ckpt=True,
-              dev_ckpt_delay=0.75, save_dir='checkpoints', print_train_scores=False, **kwargs):
+    def train(self, X_train, Y_train, session, X_dev=None, Y_dev=None, gold_candidate_set=None, print_freq=5,
+              dev_ckpt=True, dev_ckpt_delay=0.75, save_dir='checkpoints', print_train_scores=False, **kwargs):
 
         """
         Perform preprocessing of data, construct dataset-specific model, then
@@ -416,30 +415,25 @@ class WCLSTM(Classifier):
             train_idxs = LabelBalancer(Y_train).get_train_idxs(self.rebalance,
                                                                rand_state=self.rand_state)
         else:
-            # In categorical setting, just remove unlabeled
-            diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
-            balanced_idxs = np.where(diffs < 1e-6)[0]
-            uncat_improvement = 0.05
-            for i in range(self.cardinality - 1):
-                Y_train[balanced_idxs, i] -= uncat_improvement / (self.cardinality - 1)
-            Y_train[balanced_idxs, -1] += uncat_improvement
             if self.rebalance:
-                train_idxs = LabelBalancer(Y_train, categorical=True)\
+                train_idxs = LabelBalancer(Y_train, categorical=True) \
                     .rebalance_categorical_train_idxs(rebalance=self.rebalance, rand_state=self.rand_state)
             else:
+                diffs = Y_train.max(axis=1) - Y_train.min(axis=1)
                 train_idxs = np.where(diffs > 0)[0]
 
         X_train = [X_train[j] for j in train_idxs] if self.representation \
             else X_train[train_idxs, :]
         Y_train = Y_train[train_idxs]
 
-        change_marginals_with_spanset_information(X_train, Y_train)
-
         if verbose:
             st = time()
-            print("[%s] n_train= %s" % (self.name, len(X_train)))
+            print("[%s] n_train = %s" % (self.name, len(X_train)))
 
         X_w_train, X_c_train = self._preprocess_data(X_train, extend=True)
+        X_train_transformed = X_w_train, X_c_train
+
+        X_dev_transformed = self._preprocess_data(X_dev, extend=True)
 
         if self.load_char_emb:
             self.load_char_embeddings()
@@ -512,7 +506,6 @@ class WCLSTM(Classifier):
             warnings.warn('Couldn\'t recognize loss, using MultiLabelSoftMarginLoss')
             loss = nn.MultiLabelSoftMarginLoss()
 
-        dev_score_opt = 0.0
         last_epoch_opt = None
 
         for idx in range(self.n_epochs):
@@ -536,23 +529,28 @@ class WCLSTM(Classifier):
                         train_score = train_scores[-1]
                     else:
                         print('Calculating train scores...')
-                        train_scores = self.error_analysis(session, X_train,
-                                                           (Y_train.max(dim=1)[1] + 1) % self.cardinality,
-                                                           display=True,
-                                                           batch_size=self.batch_size)
+                        train_scores = self.spanset_error_analysis(session, X_train,
+                                                                   X_train_transformed,
+                                                                   Y_train.numpy(),
+                                                                   display=True,
+                                                                   batch_size=self.batch_size,
+                                                                   train_analysis=True)
                         train_score = train_scores[2]
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
-                    dev_scores = self.error_analysis(session, X_dev, Y_dev,
-                                                     batch_size=self.batch_size)
+                    dev_scores = self.spanset_error_analysis(session, X_dev,
+                                                             X_dev_transformed,
+                                                             Y_dev,
+                                                             gold_candidate_set,
+                                                             batch_size=self.batch_size)
                     dev_score = dev_scores[2]
 
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
-                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > dev_score_opt:
-                    dev_score_opt = dev_score
+                if X_dev is not None and dev_ckpt and idx > dev_ckpt_delay * self.n_epochs and dev_score > self.dev_score_opt:
+                    self.dev_score_opt = dev_score
                     self.save(save_dir=save_dir, only_param=True)
                     last_epoch_opt = idx
 
@@ -566,7 +564,7 @@ class WCLSTM(Classifier):
             print("[{0}] Training done ({1:.2f}s)".format(self.name, time() - st))
 
         # If checkpointing on, load last checkpoint (i.e. best on dev set)
-        if dev_ckpt and X_dev is not None and verbose and dev_score_opt > 0:
+        if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
             self.load(save_dir=save_dir, only_param=True)
 
     def _marginals_batch(self, X):
@@ -574,7 +572,7 @@ class WCLSTM(Classifier):
         self.char_model.eval()
         self.word_model.eval()
 
-        X_w, X_c = self._preprocess_data(X, extend=False)
+        X_w, X_c = X[0], X[1]
         sigmoid = nn.Sigmoid()
 
         y = np.array([])
@@ -634,15 +632,12 @@ class WCLSTM(Classifier):
             # Iterate over batches
             batch_marginals = []
             for b in range(0, N, batch_size):
-                batch = self._marginals_batch(X[b:b + batch_size])
+                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size]))
                 # Note: Make sure a list is returned!
                 if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
             all_marginals = np.concatenate(batch_marginals)
-
-        if self.use_spansets_for_marginals:
-            change_marginals_with_spanset_information(X, all_marginals)
 
         return all_marginals
 
@@ -683,7 +678,7 @@ class WCLSTM(Classifier):
         if verbose:
             print("[{0}] Model saved as <{1}>, only_param={2}".format(self.name, model_name, only_param))
 
-    def load(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False):
+    def load(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False, host_device='cpu'):
         """Load model from file and rebuild in new model"""
         model_name = model_name or self.name
         model_dir = os.path.join(save_dir, model_name)
@@ -692,6 +687,7 @@ class WCLSTM(Classifier):
             # Load model kwargs needed to rebuild model
             with open(os.path.join(model_dir, "model_kwargs.pkl"), 'rb') as f:
                 model_kwargs = load(f)
+                model_kwargs['host_device'] = host_device
                 self._init_kwargs(**model_kwargs)
 
             if self.load_char_emb:
@@ -716,8 +712,14 @@ class WCLSTM(Classifier):
                     d = load(f)
                     self.word_dict = d['word_dict']
 
-        self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
-        self.char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
+        if self.host_device in self.gpu:
+            self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
+            self.char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
+        else:
+            self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'),
+                                         lambda storage, loc: storage)
+            self.char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'),
+                                         lambda storage, loc: storage)
 
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))
