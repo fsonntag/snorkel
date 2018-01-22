@@ -259,7 +259,7 @@ def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
     marginal_column = spanset_marginals[:, value]
     best_candidate_row = None
     if len(marginal_column) == 2:
-        two_max_indices = np.argpartition(marginal_column, -2)[-2:]
+        two_max_indices = marginal_column.argsort()[-2:]
         two_max_values = marginal_column[two_max_indices]
         if abs(two_max_values[0] - two_max_values[1]) < 0.25:
             span1 = spanset_chunk[two_max_indices[0]][1][0]
@@ -269,7 +269,7 @@ def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
             else:
                 best_candidate_row = two_max_indices[1]
     elif len(marginal_column) == 3:
-        three_max_indices = np.argpartition(marginal_column, -3)[-3:]
+        three_max_indices = marginal_column.argsort()[-3:]
         three_max_values = marginal_column[three_max_indices]
         if abs(three_max_values[1] - three_max_values[2]) < 0.25:
             span1 = spanset_chunk[three_max_indices[1]][1][0]
@@ -288,7 +288,7 @@ def pred_from_spanset_marginals(spanset_marginals, spanset_chunk, value):
             else:
                 best_candidate_row = three_max_indices[best_candidate_row]
     elif len(marginal_column) > 3:
-        four_max_indices = np.argpartition(marginal_column, -4)[-4:]
+        four_max_indices = marginal_column.argsort()[-4:]
         four_max_values = marginal_column[four_max_indices]
         if abs(four_max_values[1] - four_max_values[2]) < 0.25:
             span1 = spanset_chunk[four_max_indices[2]][1][0]
