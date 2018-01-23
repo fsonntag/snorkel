@@ -218,9 +218,6 @@ class PCA(SpansetClassifier):
                 info = "[arg ends at index {0}; max len {1}]".format(end, mx)
                 warnings.warn('\t'.join([w.format(i), info]))
 
-    def _build_model(self, **model_kwargs):
-        pass
-
     def create_dict(self, splits, word=True, char=True):
         if word: self.word_dict = SymbolTable()
         if char: self.char_dict = SymbolTable()
@@ -912,16 +909,8 @@ class PCA(SpansetClassifier):
         return all_marginals
 
     def embed(self, X):
-        new_X_train = None
         X = self._preprocess_data_combination(X)
-
-        for i in range(len(X)):
-            feature = self.gen_feature(X[i])
-            if new_X_train is None:
-                new_X_train = torch.from_numpy(np.zeros((len(X), feature.size(1))))
-            new_X_train[i] = feature
-
-        return new_X_train.float().numpy()
+        return X.float().numpy()
 
     def save(self, model_name=None, save_dir='checkpoints', verbose=True,
              only_param=False):
