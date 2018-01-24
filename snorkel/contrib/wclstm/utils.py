@@ -1,6 +1,9 @@
+import matplotlib.pyplot as plt
 import numpy as np
 
 import torch
+from matplotlib import ticker
+from sklearn.preprocessing import minmax_scale
 from torch.autograd import Variable
 
 
@@ -93,3 +96,28 @@ def pad_batch(batch_w, batch_c, max_sentence_length, max_word_length):
     word_matrix = Variable(torch.from_numpy(word_matrix))
     word_mask_matrix = Variable(torch.eq(word_matrix.data, 0))
     return sent_matrix, sent_mask_matrix, word_matrix, word_mask_matrix
+
+
+def write_attention(X_candidates, all_word_weights, output_path):
+    attention_path = output_path / 'attention'
+    attention_path.mkdir(exist_ok=True)
+    fig = plt.figure()
+    print('Writing attention figures...')
+    for i, (candidate, sentence_weight) in enumerate(zip(X_candidates, all_word_weights)):
+        if len(candidate) == 2:
+            args = [
+                (candidate[0].get_word_start(), candidate[0].get_word_end(), 1),
+                (candidate[1].get_word_start(), candidate[1].get_word_end(), 2)
+            ]
+        else:
+            args = [(candidate[0].get_word_start(), candidate[0].get_word_end(), 1)]
+        s_words = mark_sentence(candidate_to_tokens(candidate), args)
+        context_weight = sentence_weight[:len(s_words)]
+        ax = fig.add_subplot(111)
+        cax = ax.matshow(np.reshape(minmax_scale(context_weight), (1, -1)), cmap='afmhot_r', vmin=0, vmax=1)
+        fig.colorbar(cax)
+        ax.set_xticklabels([''] + s_words, rotation=90)
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+        ax.get_yaxis().set_visible(False)
+        plt.savefig(str((attention_path / f'{i}_{candidate[0].get_span()}.png').absolute()))
+        fig.clf()

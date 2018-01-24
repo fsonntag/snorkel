@@ -170,46 +170,38 @@ class CombinedRNN(nn.Module):
         self.attention = attention
         self.use_cuda = use_cuda
 
-        self.left_context_drop = nn.Dropout(dropout)
-        self.right_context_drop = nn.Dropout(dropout)
+        self.context_drop = nn.Dropout(dropout)
         self.candidate_drop = nn.Dropout(dropout)
         self.word_lookup = nn.Embedding(num_word_tokens, embed_size, padding_idx=0)
 
         b = 2 if self.bidirectional else 1
 
         # word_emb_dim + b * self.lstm_hidden_dim
-        self.left_context_word_lstm = nn.LSTM(embed_size, lstm_hidden, batch_first=True, dropout=dropout,
-                                              bidirectional=self.bidirectional)
-        self.right_context_word_lstm = nn.LSTM(embed_size, lstm_hidden, batch_first=True, dropout=dropout,
-                                               bidirectional=self.bidirectional)
+        self.context_word_lstm = nn.LSTM(embed_size, lstm_hidden, batch_first=True, dropout=dropout,
+                                         bidirectional=self.bidirectional)
 
         self.candidate_word_lstm = nn.LSTM(candidate_input_size, lstm_hidden, batch_first=True, dropout=dropout,
                                            bidirectional=self.bidirectional)
 
         if use_xavier_init_lstm:
-            for weights in self.left_context_word_lstm.all_weights + \
-                           self.right_context_word_lstm.all_weights + \
+            for weights in self.context_word_lstm.all_weights + \
                            self.candidate_word_lstm.all_weights:
                 for weight in weights:
                     if len(weight.data.shape) == 2:
                         nn.init.xavier_uniform(weight, gain=math.sqrt(2.0))
 
         if attention:
-            self.left_context_attn_linear_w_1 = nn.Linear(b * lstm_hidden, b * lstm_hidden, bias=True)
-            self.left_context_attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
-            self.right_context_attn_linear_w_1 = nn.Linear(b * lstm_hidden, b * lstm_hidden, bias=True)
-            self.right_context_attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
+            self.context_attn_linear_w_1 = nn.Linear(b * lstm_hidden, b * lstm_hidden, bias=True)
+            self.context_attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
             self.candidate_attn_linear_w_1 = nn.Linear(b * lstm_hidden, b * lstm_hidden, bias=True)
             self.candidate_attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
-        self.linear = nn.Linear(3 * b * lstm_hidden, n_classes)
+        self.linear = nn.Linear(2 * b * lstm_hidden, n_classes)
 
-        self.left_context_attention = []
-        self.right_context_attention = []
+        self.context_attention = []
         self.candidate_attention = []
 
     def forward(self,
-                left_context_x_word, left_context_x_word_mask, left_state_context_word,
-                right_context_x_word, right_context_x_word_mask, right_state_context_word,
+                context_x_word, context_x_word_mask, state_context_word,
                 candidate_x_word, candidate_x_word_mask, state_candidate_word,
                 c_emb):
         """
@@ -217,16 +209,10 @@ class CombinedRNN(nn.Module):
         x_mask : batch_size * length
         x_c    : batch_size * length * emb_size
         """
-        left_context_x_emb = self.word_lookup(left_context_x_word)
-        left_context_x_emb = self.left_context_drop(left_context_x_emb)
-        right_context_x_emb = self.word_lookup(right_context_x_word)
-        right_context_x_emb = self.right_context_drop(right_context_x_emb)
-        left_output_context_word, left_state_context_word = self.left_context_word_lstm(left_context_x_emb,
-                                                                                        left_state_context_word)
-        left_output_context_word = self.left_context_drop(left_output_context_word)
-        right_output_context_word, right_state_context_word = self.right_context_word_lstm(right_context_x_emb,
-                                                                                           right_state_context_word)
-        right_output_context_word = self.right_context_drop(right_output_context_word)
+        context_x_emb = self.word_lookup(context_x_word)
+        context_x_emb = self.context_drop(context_x_emb)
+        output_context_word, state_context_word = self.context_word_lstm(context_x_emb, state_context_word)
+        output_context_word = self.context_drop(output_context_word)
 
         x_emb = self.word_lookup(candidate_x_word)
         cat_embed = torch.cat((x_emb, c_emb), 2)
@@ -235,39 +221,27 @@ class CombinedRNN(nn.Module):
         output_candidate_word = self.candidate_drop(output_candidate_word)
 
         if self.attention:
-            left_context_attention_vectors, left_context_attention = self.attention_output(left_output_context_word,
-                                                                                           left_context_x_word_mask,
-                                                                                           self.left_context_attn_linear_w_1,
-                                                                                           self.left_context_attn_linear_w_2)
-            right_context_attention_vectors, right_context_attention = self.attention_output(right_output_context_word,
-                                                                                             right_context_x_word_mask,
-                                                                                             self.right_context_attn_linear_w_1,
-                                                                                             self.right_context_attn_linear_w_2)
+            context_attention_vectors, context_attention = self.attention_output(output_context_word,
+                                                                                      context_x_word_mask,
+                                                                                      self.context_attn_linear_w_1,
+                                                                                      self.context_attn_linear_w_2)
             candidate_attention_vectors, candidate_attention = self.attention_output(output_candidate_word,
-                                                                                     candidate_x_word_mask,
-                                                                                     self.candidate_attn_linear_w_1,
-                                                                                     self.candidate_attn_linear_w_2)
-            if hasattr(self, 'left_context_attention'):
-                self.left_context_attention.append(left_context_attention.numpy())
+                                                                                          candidate_x_word_mask,
+                                                                                          self.candidate_attn_linear_w_1,
+                                                                                          self.candidate_attn_linear_w_2)
+            if hasattr(self, 'context_attention'):
+                self.context_attention.append(context_attention.numpy())
             else:
-                self.left_context_attention = [left_context_attention.numpy()]
-            if hasattr(self, 'right_context_attention'):
-                self.right_context_attention.append(right_context_attention.numpy())
-            else:
-                self.right_context_attention = [right_context_attention.numpy()]
+                self.context_attention = [context_attention.numpy()]
             if hasattr(self, 'candidate_attention'):
                 self.candidate_attention.append(candidate_attention.numpy())
             else:
                 self.candidate_attention = [candidate_attention.numpy()]
-            output = self.linear(torch.cat(
-                (left_context_attention_vectors, candidate_attention_vectors, right_context_attention_vectors), 1))
+            output = self.linear(torch.cat((context_attention_vectors, candidate_attention_vectors), 1))
         else:
-            left_context_vectors = self.mean_pooling_output(left_output_context_word, left_context_x_word,
-                                                            left_context_x_word_mask)
-            right_context_vectors = self.mean_pooling_output(right_output_context_word, right_context_x_word,
-                                                             right_context_x_word_mask)
+            context_vectors = self.mean_pooling_output(output_context_word, context_x_word, context_x_word_mask)
             candidate_vectors = self.mean_pooling_output(output_candidate_word, candidate_x_word, candidate_x_word_mask)
-            output = self.linear(torch.cat((left_context_vectors, candidate_vectors, right_context_vectors)))
+            output = self.linear(torch.cat((context_vectors, candidate_vectors)))
         return output
 
     def attention_output(self, output, x_mask, attn_linear_w_1, attn_linear_w_2):
@@ -301,13 +275,9 @@ class CombinedRNN(nn.Module):
             return ((Variable(torch.zeros(2, batch_size, self.lstm_hidden)),
                      Variable(torch.zeros(2, batch_size, self.lstm_hidden))),
                     (Variable(torch.zeros(2, batch_size, self.lstm_hidden)),
-                     Variable(torch.zeros(2, batch_size, self.lstm_hidden))),
-                    (Variable(torch.zeros(2, batch_size, self.lstm_hidden)),
                      Variable(torch.zeros(2, batch_size, self.lstm_hidden))))
         else:
             return ((Variable(torch.zeros(1, batch_size, self.lstm_hidden)),
-                     Variable(torch.zeros(1, batch_size, self.lstm_hidden))),
-                    (Variable(torch.zeros(1, batch_size, self.lstm_hidden)),
                      Variable(torch.zeros(1, batch_size, self.lstm_hidden))),
                     (Variable(torch.zeros(1, batch_size, self.lstm_hidden)),
                      Variable(torch.zeros(1, batch_size, self.lstm_hidden))))

@@ -5,15 +5,15 @@ from time import time
 import torch.utils.data as data_utils
 from six.moves.cPickle import dump, load
 
-from snorkel.contrib.wclstm.layers import *
-from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
-from snorkel.contrib.wclstm.utils import *
+from snorkel.contrib.context_lstm_old.layers import *
+from snorkel.contrib.context_lstm_old.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
+from snorkel.contrib.context_lstm_old.utils import *
 from snorkel.learning.spanset_classifier import SpansetClassifier
 from snorkel.learning.utils import reshape_marginals, LabelBalancer
 
 
-class WCLSTM(SpansetClassifier):
-    name = 'WCLSTM'
+class ContextLSTM(SpansetClassifier):
+    name = 'ContextLSTMOld'
     representation = True
     char_marker = ['<', '>']
     gpu = ['gpu', 'GPU']
@@ -21,13 +21,13 @@ class WCLSTM(SpansetClassifier):
     # Set unknown
     unknown_symbol = 1
 
-    """Hierarchy Bi-LSTM for relation extraction"""
+    """Hierarchy Bi-LSTM for entity extraction"""
 
     def __init__(self, n_threads=None, seed=123, **kwargs):
         self.n_threads = n_threads
         self.seed = seed
         self.rand_state = np.random.RandomState()
-        super(WCLSTM, self).__init__(**kwargs)
+        super(ContextLSTM, self).__init__(**kwargs)
 
     def _preprocess_data(self, candidates, extend=False):
         """Convert candidate sentences to lookup sequences
@@ -47,9 +47,10 @@ class WCLSTM(SpansetClassifier):
             for marker in self.char_marker:
                 self.char_dict.get(marker)
 
-        word_seq_data = []
-        char_seq_data = []
-        for candidate in candidates:
+        context_word_seq_data = []
+        candidate_word_seq_data = []
+        candidate_char_seq_data = []
+        for i, candidate in enumerate(candidates):
             # Mark sentence based on cardinality of relation
             if len(candidate) == 2:
                 args = [
@@ -59,31 +60,25 @@ class WCLSTM(SpansetClassifier):
             else:
                 args = [(candidate[0].get_word_start(), candidate[0].get_word_end(), 1)]
 
-            s = mark_sentence(candidate_to_tokens(candidate), args)
+            s = trim_with_radius(mark_sentence(candidate_to_tokens(candidate), args), candidate, self.context_radius)
             # Either extend word table or retrieve from it
             f = self.word_dict.get if extend else self.word_dict.lookup
-            word_seq_data.append(np.array(list(map(f, s))))
+            context_word_seq_data.append(np.array(list(map(f, s))))
+
+            candidate_tokens = candidate[0].get_attrib_tokens('words')
+            candidate_word_seq_data.append(np.array(list(map(f, candidate_tokens))))
 
             # Either extend char table or retrieve from it
             g = self.char_dict.get if extend else self.char_dict.lookup
             char_seq = []
-            for w in s:
+            for w in candidate_tokens:
                 word = self.char_marker[0] + w + self.char_marker[1]
                 word_char_seq = []
                 for i in range(len(word) - self.char_gram + 1):
                     word_char_seq.append(word[i:i + self.char_gram])
                 char_seq.append(np.array(list(map(g, word_char_seq))))
-            char_seq_data.append(char_seq)
-        return np.array(word_seq_data), np.array(char_seq_data)
-
-    def _check_max_sentence_length(self, ends, max_len=None):
-        """Check that extraction arguments are within @self.max_len"""
-        mx = max_len or self.max_sentence_length
-        for i, end in enumerate(ends):
-            if end >= mx:
-                w = "Candidate {0} has argument past max length for model:"
-                info = "[arg ends at index {0}; max len {1}]".format(end, mx)
-                warnings.warn('\t'.join([w.format(i), info]))
+            candidate_char_seq_data.append(char_seq)
+        return np.array(context_word_seq_data), np.array(candidate_word_seq_data), np.array(candidate_char_seq_data)
 
     def create_dict(self, splits, word=True, char=True):
         """Create global dict from user input"""
@@ -231,21 +226,27 @@ class WCLSTM(SpansetClassifier):
                     [float(_) for _ in line[-self.word_emb_dim:]])
         f.close()
 
-    def train_model(self, w_model, c_model, optimizer, criterion, x_w, x_w_mask, x_c, x_c_mask, y):
+    def train_model(self, w_model, c_model, optimizer, criterion,
+                    context_x_w, context_x_w_mask,
+                    candidate_x_w, candidate_x_w_mask,
+                    x_c, x_c_mask, y):
         """Train LSTM model"""
         w_model.train()
         c_model.train()
         batch_size, max_sent, max_token = x_c.size()
-        w_state_word = w_model.init_hidden(batch_size)
+        context_w_state_word, candidate_w_state_word = w_model.init_hidden(batch_size)
         c_state_word = c_model.init_hidden(batch_size)
 
         if self.host_device in self.gpu:
-            x_w = x_w.cuda()
-            x_w_mask = x_w_mask.cuda()
+            context_x_w = context_x_w.cuda()
+            context_x_w_mask = context_x_w_mask.cuda()
+            candidate_x_w = candidate_x_w.cuda()
+            candidate_x_w_mask = candidate_x_w_mask.cuda()
             x_c = x_c.cuda()
             x_c_mask = x_c_mask.cuda()
             y = y.cuda()
-            w_state_word = (w_state_word[0].cuda(), w_state_word[1].cuda())
+            context_w_state_word = (context_w_state_word[0].cuda(), context_w_state_word[1].cuda())
+            candidate_w_state_word = (candidate_w_state_word[0].cuda(), candidate_w_state_word[1].cuda())
             c_state_word = (c_state_word[0].cuda(), c_state_word[1].cuda())
 
         optimizer.zero_grad()
@@ -255,7 +256,9 @@ class WCLSTM(SpansetClassifier):
             _s = _s.unsqueeze(0)
             s = _s if s is None else torch.cat((s, _s), 0)
         s = s.transpose(0, 1)
-        y_pred = w_model(x_w, x_w_mask, s, w_state_word)
+        y_pred = w_model(context_x_w, context_x_w_mask, context_w_state_word,
+                         candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
+                         s)
 
         if self.host_device in self.gpu:
             loss = criterion(y_pred.squeeze(1).cuda(), y)
@@ -324,7 +327,7 @@ class WCLSTM(SpansetClassifier):
         self.bidirectional = kwargs.get('bidirectional', True)
 
         # Set max sentence length
-        self.max_sentence_length = kwargs.get('max_sentence_length', 100)
+        self.context_radius = kwargs.get('context_radius', 10)
 
         # Set max word length
         self.max_word_length = kwargs.get('max_word_length', 20)
@@ -355,7 +358,7 @@ class WCLSTM(SpansetClassifier):
         print(f"Checkpoint Patience:           {self.patience}")
         print(f"Char gram:                     {self.char_gram}")
         print(f"Max word length:               {self.max_word_length}")
-        print(f"Max sentence length:           {self.max_sentence_length}")
+        print(f"Context radius:                {self.context_radius}")
         print(f"Load pre-trained word emb.:    {self.load_word_emb}")
         print(f"Load pre-trained char emb.:    {self.load_char_emb}")
         print(f"Host device:                   {self.host_device}")
@@ -428,8 +431,9 @@ class WCLSTM(SpansetClassifier):
             st = time()
             print("[%s] n_train = %s" % (self.name, len(X_train)))
 
-        X_w_train, X_c_train = self._preprocess_data(X_train, extend=True)
-        X_train_transformed = X_w_train, X_c_train
+        context_X_w_train, candidate_X_w_train, candidate_X_c_train = \
+            self._preprocess_data(X_train, extend=True)
+        X_train_transformed = context_X_w_train, candidate_X_w_train, candidate_X_c_train
 
         X_dev_transformed = self._preprocess_data(X_dev, extend=True)
 
@@ -444,55 +448,59 @@ class WCLSTM(SpansetClassifier):
 
         Y_train = torch.from_numpy(Y_train).float()
 
-        X = torch.from_numpy(np.arange(len(X_w_train)))
+        X = torch.from_numpy(np.arange(len(context_X_w_train)))
         data_set = data_utils.TensorDataset(X, Y_train)
         data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=self.shuffle)
 
         n_classes = 1 if self.cardinality == 2 else self.cardinality
 
-        self.char_model = CharRNN(batch_size=self.batch_size, num_tokens=self.char_dict.s,
-                                  embed_size=self.char_emb_dim,
-                                  lstm_hidden=self.lstm_hidden_dim,
-                                  attention=self.attention,
-                                  dropout=self.dropout,
-                                  bidirectional=self.bidirectional,
-                                  use_cuda=self.host_device in self.gpu)
+        self.candidate_char_model = CharRNN(batch_size=self.batch_size, num_tokens=self.char_dict.s,
+                                            embed_size=self.char_emb_dim,
+                                            lstm_hidden=self.lstm_hidden_dim,
+                                            attention=self.attention,
+                                            dropout=self.dropout,
+                                            bidirectional=self.bidirectional,
+                                            use_cuda=self.host_device in self.gpu)
         if self.load_char_emb:
             # Set pre-trained embedding weights
-            self.char_model.lookup.weight.data.copy_(torch.from_numpy(self.char_emb))
+            self.candidate_char_model.lookup.weight.data.copy_(torch.from_numpy(self.char_emb))
 
         b = 2 if self.bidirectional else 1
-        self.word_model = WordRNN(n_classes=n_classes, batch_size=self.batch_size,
-                                  num_tokens=self.word_dict.s,
-                                  embed_size=self.word_emb_dim,
-                                  input_size=self.word_emb_dim + b * self.lstm_hidden_dim,
-                                  lstm_hidden=self.lstm_hidden_dim,
-                                  attention=self.attention,
-                                  dropout=self.dropout,
-                                  bidirectional=self.bidirectional,
-                                  use_cuda=self.host_device in self.gpu)
+        self.combined_word_model = CombinedRNN(n_classes=n_classes, batch_size=self.batch_size,
+                                               num_word_tokens=self.word_dict.s,
+                                               embed_size=self.word_emb_dim,
+                                               candidate_input_size=self.word_emb_dim + b * self.lstm_hidden_dim,
+                                               lstm_hidden=self.lstm_hidden_dim,
+                                               attention=self.attention,
+                                               dropout=self.dropout,
+                                               bidirectional=self.bidirectional,
+                                               use_cuda=self.host_device in self.gpu)
 
         if self.load_word_emb:
             # Set pre-trained embedding weights
-            self.word_model.lookup.weight.data.copy_(torch.from_numpy(self.word_emb))
+            self.combined_word_model.word_lookup.weight.data.copy_(torch.from_numpy(self.word_emb))
 
         if self.host_device in self.gpu:
-            self.char_model.cuda()
-            self.word_model.cuda()
+            self.candidate_char_model.cuda()
+            self.combined_word_model.cuda()
 
         if self.optimizer_name == 'adam':
-            optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
-                                         lr=self.lr, weight_decay=self.weight_decay)
+            optimizer = torch.optim.Adam(
+                list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
+                lr=self.lr, weight_decay=self.weight_decay)
         elif self.optimizer_name == 'rmsprop':
-            optimizer = torch.optim.RMSprop(list(self.char_model.parameters()) + list(self.word_model.parameters()),
-                                            lr=self.lr, weight_decay=self.weight_decay)
+            optimizer = torch.optim.RMSprop(
+                list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
+                lr=self.lr, weight_decay=self.weight_decay)
         elif self.optimizer_name == 'sgd':
-            optimizer = torch.optim.RMSprop(list(self.char_model.parameters()) + list(self.word_model.parameters()),
-                                            lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
+            optimizer = torch.optim.RMSprop(
+                list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
+                lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
         else:
             warnings.warn('Couldn\'t recognize optimizer, using Adam')
-            optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
-                                         lr=self.lr, weight_decay=self.weight_decay)
+            optimizer = torch.optim.Adam(
+                list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
+                lr=self.lr, weight_decay=self.weight_decay)
 
         if self.loss_name == 'mlsml':
             loss = nn.MultiLabelSoftMarginLoss()
@@ -509,11 +517,14 @@ class WCLSTM(SpansetClassifier):
         for idx in range(self.n_epochs):
             cost = 0.
             for x, y in data_loader:
-                x_w, x_w_mask, x_c, x_c_mask = pad_batch(X_w_train[x.numpy()], X_c_train[x.numpy()],
-                                                         self.max_sentence_length, self.max_word_length)
+                context_x_w, context_x_w_mask, candidate_x_w, candidate_x_w_mask, x_c, x_c_mask = \
+                    pad_batch(context_X_w_train[x.numpy()], candidate_X_w_train[x.numpy()],
+                              candidate_X_c_train[x.numpy()], self.context_radius, self.max_word_length)
                 y = Variable(y.float(), requires_grad=False)
-                cost += self.train_model(self.word_model, self.char_model, optimizer, loss, x_w, x_w_mask, x_c,
-                                         x_c_mask, y)
+                cost += self.train_model(self.combined_word_model, self.candidate_char_model, optimizer, loss,
+                                         context_x_w, context_x_w_mask,
+                                         candidate_x_w, candidate_x_w_mask,
+                                         x_c, x_c_mask, y)
             self.cost_history.append((idx, cost))
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 print(f'Finished learning in epoch {idx + 1}')
@@ -546,7 +557,6 @@ class WCLSTM(SpansetClassifier):
                                                              prediction_type='dev')
                     dev_score = dev_scores[2]
                     self.dev_history.append((idx, dev_score))
-
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
@@ -573,42 +583,48 @@ class WCLSTM(SpansetClassifier):
 
     def _marginals_batch(self, X):
         """Predict class based on user input"""
-        self.char_model.eval()
-        self.word_model.eval()
+        self.candidate_char_model.eval()
+        self.combined_word_model.eval()
 
-        X_w, X_c = X[0], X[1]
+        context_X_w, candidate_X_w, candidate_X_c = X[0], X[1], X[2]
         sigmoid = nn.Sigmoid()
 
         y = np.array([])
         if self.cardinality > 2:
             y = y.reshape(0, self.cardinality)
 
-        x = torch.from_numpy(np.arange(len(X_w)))
+        x = torch.from_numpy(np.arange(len(context_X_w)))
         data_set = data_utils.TensorDataset(x, x)
         data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
 
         for x, _ in data_loader:
-            x_w, x_w_mask, x_c, x_c_mask = pad_batch(X_w[x.numpy()], X_c[x.numpy()], self.max_sentence_length,
-                                                     self.max_word_length)
+            context_x_w, context_x_w_mask, candidate_x_w, candidate_x_w_mask, x_c, x_c_mask \
+                = pad_batch(context_X_w[x.numpy()], candidate_X_w[x.numpy()], candidate_X_c[x.numpy()],
+                            self.context_radius, self.max_word_length)
             batch_size, max_sent, max_token = x_c.size()
-            w_state_word = self.word_model.init_hidden(batch_size)
-            c_state_word = self.char_model.init_hidden(batch_size)
+            context_w_state_word, candidate_w_state_word = self.combined_word_model.init_hidden(batch_size)
+            c_state_word = self.candidate_char_model.init_hidden(batch_size)
 
             if self.host_device in self.gpu:
-                x_w = x_w.cuda()
-                x_w_mask = x_w_mask.cuda()
+                context_x_w = context_x_w.cuda()
+                context_x_w_mask = context_x_w_mask.cuda()
+                candidate_x_w = candidate_x_w.cuda()
+                candidate_x_w_mask = candidate_x_w_mask.cuda()
                 x_c = x_c.cuda()
                 x_c_mask = x_c_mask.cuda()
-                w_state_word = (w_state_word[0].cuda(), w_state_word[1].cuda())
+                context_w_state_word = (context_w_state_word[0].cuda(), context_w_state_word[1].cuda())
+                candidate_w_state_word = (candidate_w_state_word[0].cuda(), candidate_w_state_word[1].cuda())
                 c_state_word = (c_state_word[0].cuda(), c_state_word[1].cuda())
 
             s = None
             for i in range(max_sent):
-                _s = self.char_model(x_c[:, i, :], x_c_mask[:, i, :], c_state_word)
+                _s = self.candidate_char_model(x_c[:, i, :], x_c_mask[:, i, :], c_state_word)
                 _s = _s.unsqueeze(0)
                 s = _s if s is None else torch.cat((s, _s), 0)
             s = s.transpose(0, 1)
-            y_pred = self.word_model(x_w, x_w_mask, s, w_state_word)
+            y_pred = self.combined_word_model(context_x_w, context_x_w_mask, context_w_state_word,
+                                              candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
+                                              s)
             if self.host_device in self.gpu:
                 if self.cardinality > 2:
                     y = np.vstack((y, sigmoid(y_pred).data.cpu().numpy()))
@@ -635,15 +651,13 @@ class WCLSTM(SpansetClassifier):
             # Iterate over batches
             batch_marginals = []
             for b in range(0, N, batch_size):
-                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size]))
+                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size], X[2][b:b + batch_size]))
                 # Note: Make sure a list is returned!
                 if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
             all_marginals = np.concatenate(batch_marginals)
-
         return all_marginals
-
 
     def marginals_with_attention(self, X_candidates, X, batch_size=None, **kwargs):
         """
@@ -660,18 +674,23 @@ class WCLSTM(SpansetClassifier):
             # Iterate over batches
             batch_marginals = []
             for b in range(0, N, batch_size):
-                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size]))
+                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size], X[2][b:b + batch_size]))
                 # Note: Make sure a list is returned!
                 if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
             all_marginals = np.concatenate(batch_marginals)
-        max_sentence_length = max(a.shape[1] for a in self.word_model.word_attention)
-        all_word_weights = np.concatenate(
-            [np.pad(a[:, :, 0], (0, max_sentence_length - a.shape[1]), "constant", constant_values=(-1e12, -1e12))
+        max_context_length = max(a.shape[1] for a in self.combined_word_model.context_attention)
+        context_weights = np.concatenate(
+            [np.pad(a[:, :, 0], (0, max_context_length - a.shape[1]), "constant", constant_values=(-1e12, -1e12))
              for a
-             in self.word_model.word_attention])
-        write_attention(X_candidates, all_word_weights, self.output_path)
+             in self.combined_word_model.context_attention])
+        max_candidate_length = max(a.shape[1] for a in self.combined_word_model.candidate_attention)
+        candidate_weights = np.concatenate(
+            [np.pad(a[:, :, 0], (0, max_candidate_length - a.shape[1]), "constant", constant_values=(-1e12, -1e12))
+             for a
+             in self.combined_word_model.candidate_attention])
+        write_attention(X_candidates, context_weights, candidate_weights, self.context_radius, self.output_path)
 
         return all_marginals
 
@@ -706,8 +725,8 @@ class WCLSTM(SpansetClassifier):
                 with open(os.path.join(model_dir, "word_model_dicts.pkl"), 'wb') as f:
                     dump({'word_dict': self.word_dict}, f)
 
-        torch.save(self.word_model, os.path.join(model_dir, model_name + '_word_model'))
-        torch.save(self.char_model, os.path.join(model_dir, model_name + '_char_model'))
+        torch.save(self.combined_word_model, os.path.join(model_dir, model_name + '_word_model'))
+        torch.save(self.candidate_char_model, os.path.join(model_dir, model_name + '_char_model'))
 
         if verbose:
             print("[{0}] Model saved as <{1}>, only_param={2}".format(self.name, model_name, only_param))
@@ -747,13 +766,13 @@ class WCLSTM(SpansetClassifier):
                     self.word_dict = d['word_dict']
 
         if self.host_device in self.gpu:
-            self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
-            self.char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
+            self.combined_word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
+            self.candidate_char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
         else:
-            self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'),
-                                         lambda storage, loc: storage)
-            self.char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'),
-                                         lambda storage, loc: storage)
+            self.combined_word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'),
+                                                  lambda storage, loc: storage)
+            self.candidate_char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'),
+                                                   lambda storage, loc: storage)
 
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))

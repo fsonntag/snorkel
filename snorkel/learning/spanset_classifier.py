@@ -38,6 +38,10 @@ class SpansetClassifier(Classifier):
         # Compute the marginals
 
         prediction_type = kwargs.get('prediction_type', None)
+        show_attention = kwargs.get('show_attention', False)
+
+        if show_attention:
+            self.marginals_with_attention(X_test, X_test_transformed, **kwargs)
 
         test_marginals = self.marginals(X_test_transformed, **kwargs)
 
@@ -100,3 +104,6 @@ class SpansetClassifier(Classifier):
             plt.gca().set_ylim([-0.05, 1.05])
             plt.savefig(str((self.output_path / 'dev_f1.png').absolute()))
             plt.clf()
+
+    def marginals_with_attention(self, X, X_transformed, batch_size=None, **kwargs):
+        raise NotImplementedError()
