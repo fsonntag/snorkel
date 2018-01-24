@@ -1,5 +1,8 @@
 from itertools import chain
 
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
 from snorkel.learning import MentionScorer
 from snorkel.learning.classifier import Classifier
 from snorkel.learning.spanset_utils import *
@@ -9,6 +12,9 @@ class SpansetClassifier(Classifier):
 
     def __init__(self, output_path=None, **kwargs):
         self.output_path = output_path
+        self.dev_score_opt = 0.0
+        self.dev_scores_opt = [0., 0., 0.]
+        self.cost_history, self.train_history, self.dev_history = [], [], []
         super(SpansetClassifier, self).__init__(**kwargs)
 
     def spanset_error_analysis(self, session, X_test, X_test_transformed, Y_test,
@@ -31,7 +37,7 @@ class SpansetClassifier(Classifier):
         """
         # Compute the marginals
 
-        prediction_type = kwargs.get('prediction_type', False)
+        prediction_type = kwargs.get('prediction_type', None)
 
         test_marginals = self.marginals(X_test_transformed, **kwargs)
 
@@ -59,3 +65,38 @@ class SpansetClassifier(Classifier):
         return s._score_categorical(Y_pred, train_marginals=None, b=b,
                                     display=display, set_unlabeled_as_neg=set_unlabeled_as_neg,
                                     already_predicted=True, prediction_type=prediction_type)
+
+    def write_history(self):
+        if self.cost_history:
+            his_zip = tuple(zip(*self.cost_history))
+            plt.plot(his_zip[0], his_zip[1])
+            plt.title(f'Train Loss')
+            plt.ylabel('Loss')
+            plt.xlabel('Epoch')
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+            plt.gca().set_ylim([-0.05, 1.05])
+            plt.savefig(str((self.output_path / 'loss.png').absolute()))
+            plt.clf()
+        if self.train_history and self.dev_history:
+            his_zip = tuple(zip(*self.train_history))
+            plt.plot(his_zip[0], his_zip[1])
+            his_zip = tuple(zip(*self.dev_history))
+            plt.plot(his_zip[0], his_zip[1])
+            plt.title(f'F1 Score')
+            plt.ylabel('F1')
+            plt.xlabel('Epoch')
+            plt.legend(['Train', 'Dev'], loc='upper left')
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+            plt.gca().set_ylim([-0.05, 1.05])
+            plt.savefig(str((self.output_path / 'f1.png').absolute()))
+            plt.clf()
+        if self.dev_history:
+            his_zip = tuple(zip(*self.dev_history))
+            plt.plot(his_zip[0], his_zip[1])
+            plt.title(f'F1 Score')
+            plt.ylabel('F1')
+            plt.xlabel('Epoch')
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+            plt.gca().set_ylim([-0.05, 1.05])
+            plt.savefig(str((self.output_path / 'dev_f1.png').absolute()))
+            plt.clf()

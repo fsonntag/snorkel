@@ -77,9 +77,10 @@ def pad_batch(batch_w_context, batch_w_candidate, batch_c_candidate, context_rad
     """Pad the batch into matrix"""
     batch_size = len(batch_w_context)
     max_cand_len = 8
-    max_word_len = min(int(np.max([len(w) for words in batch_c_candidate for w in words])), max_word_length)
+    max_word_len = min(int(max(len(w) for words in batch_c_candidate for w in words)), max_word_length)
+    max_context_len = max(len(b) for b in batch_w_context)
 
-    context_word_matrix = np.zeros((batch_size, 2 * context_radius + 3), dtype=np.int)
+    context_word_matrix = np.zeros((batch_size, max_context_len), dtype=np.int)
     candidate_word_matrix = np.zeros((batch_size, max_cand_len), dtype=np.int)
     candidate_char_matrix = np.zeros((batch_size, max_cand_len, max_word_len), dtype=np.int)
 

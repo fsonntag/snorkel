@@ -397,7 +397,6 @@ class MentionScorer(Scorer):
 
         for type in types:
             current_type_label = candidates[0][1].values.index(type) + 1
-            other_labels = type_labels - {current_type_label} | {0}
 
             for type_i, (i, candidate) in enumerate(candidates):
                 true_test_label = self._get_label_for_candidate(i, candidate)

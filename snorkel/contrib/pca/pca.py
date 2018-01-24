@@ -684,9 +684,6 @@ class PCA(SpansetClassifier):
         print(f"NER/1-arity candidates             {self.ner}")
         print("===============================================")
 
-        self.dev_score_opt = 0.0
-        self.dev_scores_opt = [0., 0., 0.]
-
         assert self.word_emb_path is not None
         if self.char:
             assert self.char_emb_path is not None
@@ -828,6 +825,7 @@ class PCA(SpansetClassifier):
             cost = 0.
             for x, y in train_loader:
                 cost += self.train_model(self.model, loss, optimizer, x, y.float())
+            self.cost_history.append((idx, cost))
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 print(f'Finished learning in epoch {idx + 1}')
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost)
@@ -847,6 +845,7 @@ class PCA(SpansetClassifier):
                                                                    batch_size=self.batch_size,
                                                                    prediction_type='train')
                         train_score = train_scores[2]
+                    self.train_history.append((idx, train_score))
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
@@ -857,7 +856,7 @@ class PCA(SpansetClassifier):
                                                              batch_size=self.batch_size,
                                                              prediction_type='dev')
                     dev_score = dev_scores[2]
-
+                    self.dev_history.append((idx, dev_score))
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
@@ -875,6 +874,8 @@ class PCA(SpansetClassifier):
         # Conclude training
         if verbose:
             print("[{0}] Training done ({1:.2f}s)".format(self.name, time() - st))
+
+        self.write_history()
 
         # If checkpointing on, load last checkpoint (i.e. best on dev set)
         if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:

@@ -29,7 +29,7 @@ class ContextLSTM(SpansetClassifier):
         self.rand_state = np.random.RandomState()
         super(ContextLSTM, self).__init__(**kwargs)
 
-    def _preprocess_data(self, candidates, candidate_radius, extend=False):
+    def _preprocess_data(self, candidates, extend=False):
         """Convert candidate sentences to lookup sequences
 
         :param candidates: candidates to process
@@ -60,7 +60,7 @@ class ContextLSTM(SpansetClassifier):
             else:
                 args = [(candidate[0].get_word_start(), candidate[0].get_word_end(), 1)]
 
-            s = trim_with_radius(mark_sentence(candidate_to_tokens(candidate), args), candidate, candidate_radius)
+            s = trim_with_radius(mark_sentence(candidate_to_tokens(candidate), args), candidate, self.context_radius)
             # Either extend word table or retrieve from it
             f = self.word_dict.get if extend else self.word_dict.lookup
             context_word_seq_data.append(np.array(list(map(f, s))))
@@ -368,9 +368,6 @@ class ContextLSTM(SpansetClassifier):
         print(f"Char embedding:                {self.char_emb_path}")
         print("===============================================")
 
-        self.dev_score_opt = 0.0
-        self.dev_scores_opt = [0., 0., 0.]
-
         if self.load_word_emb:
             assert self.word_emb_path is not None
         if self.load_char_emb:
@@ -528,7 +525,7 @@ class ContextLSTM(SpansetClassifier):
                                          context_x_w, context_x_w_mask,
                                          candidate_x_w, candidate_x_w_mask,
                                          x_c, x_c_mask, y)
-
+            self.cost_history.append((idx, cost))
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 print(f'Finished learning in epoch {idx + 1}')
                 msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost)
@@ -548,6 +545,7 @@ class ContextLSTM(SpansetClassifier):
                                                                    batch_size=self.batch_size,
                                                                    prediction_type='train')
                         train_score = train_scores[2]
+                    self.train_history.append((idx, train_score))
                     msg += '\tTrain {0}={1:.2f}'.format(score_label, 100. * train_score)
                 if X_dev is not None:
                     print('Calculating dev scores...')
@@ -558,7 +556,7 @@ class ContextLSTM(SpansetClassifier):
                                                              batch_size=self.batch_size,
                                                              prediction_type='dev')
                     dev_score = dev_scores[2]
-
+                    self.dev_history.append((idx, dev_score))
                     msg += '\tDev {0}={1:.2f}'.format(score_label, 100. * dev_score)
                 print(msg)
 
@@ -576,6 +574,8 @@ class ContextLSTM(SpansetClassifier):
         # Conclude training
         if verbose:
             print("[{0}] Training done ({1:.2f}s)".format(self.name, time() - st))
+
+        self.write_history()
 
         # If checkpointing on, load last checkpoint (i.e. best on dev set)
         if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
@@ -650,6 +650,8 @@ class ContextLSTM(SpansetClassifier):
 
             # Iterate over batches
             batch_marginals = []
+            candidate_embeddings = []
+            context_embeddings = []
             for b in range(0, N, batch_size):
                 batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size], X[2][b:b + batch_size]))
                 # Note: Make sure a list is returned!
@@ -657,7 +659,6 @@ class ContextLSTM(SpansetClassifier):
                     batch = np.array([batch])
                 batch_marginals.append(batch)
             all_marginals = np.concatenate(batch_marginals)
-
         return all_marginals
 
     def save(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False):
