@@ -151,7 +151,7 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
         else:
             args = [(candidate[0].get_word_start(), candidate[0].get_word_end(), 1)]
         left_s_words, right_s_words = trim_with_radius(mark_sentence(candidate_to_tokens(candidate), args), candidate,
-                                   context_radius)
+                                                       context_radius)
         if left_s_words:
             context_weight = left_context_weight[:len(left_s_words)]
             ax = fig.add_subplot(111)

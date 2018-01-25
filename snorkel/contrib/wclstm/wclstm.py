@@ -1,5 +1,6 @@
 import os
 import warnings
+from itertools import chain
 from time import time
 
 import torch.utils.data as data_utils
@@ -255,7 +256,7 @@ class WCLSTM(SpansetClassifier):
             _s = _s.unsqueeze(0)
             s = _s if s is None else torch.cat((s, _s), 0)
         s = s.transpose(0, 1)
-        y_pred = w_model(x_w, x_w_mask, s, w_state_word)
+        y_pred, _ = w_model(x_w, x_w_mask, s, w_state_word)
 
         if self.host_device in self.gpu:
             loss = criterion(y_pred.squeeze(1).cuda(), y)
@@ -571,7 +572,7 @@ class WCLSTM(SpansetClassifier):
         if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
             self.load(save_dir=save_dir, only_param=True)
 
-    def _marginals_batch(self, X):
+    def _marginals_batch(self, X, save_attentions=False):
         """Predict class based on user input"""
         self.char_model.eval()
         self.word_model.eval()
@@ -586,6 +587,7 @@ class WCLSTM(SpansetClassifier):
         x = torch.from_numpy(np.arange(len(X_w)))
         data_set = data_utils.TensorDataset(x, x)
         data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
+        attentions = []
 
         for x, _ in data_loader:
             x_w, x_w_mask, x_c, x_c_mask = pad_batch(X_w[x.numpy()], X_c[x.numpy()], self.max_sentence_length,
@@ -608,18 +610,25 @@ class WCLSTM(SpansetClassifier):
                 _s = _s.unsqueeze(0)
                 s = _s if s is None else torch.cat((s, _s), 0)
             s = s.transpose(0, 1)
-            y_pred = self.word_model(x_w, x_w_mask, s, w_state_word)
+            y_pred, batch_attentions = self.word_model(x_w, x_w_mask, s, w_state_word)
             if self.host_device in self.gpu:
                 if self.cardinality > 2:
                     y = np.vstack((y, sigmoid(y_pred).data.cpu().numpy()))
                 else:
                     y = np.append(y, sigmoid(y_pred).data.cpu().numpy())
+                if save_attentions:
+                    attentions.append(batch_attentions.data.cpu().numpy())
             else:
                 if self.cardinality > 2:
                     y = np.vstack((y, sigmoid(y_pred).data.numpy()))
                 else:
                     y = np.append(y, sigmoid(y_pred).data.numpy())
-        return y
+                if save_attentions:
+                    attentions.append(batch_attentions.data.numpy())
+        if save_attentions:
+            return y, attentions
+        else:
+            return y
 
     def marginals(self, X, batch_size=None, **kwargs):
         """
@@ -644,7 +653,6 @@ class WCLSTM(SpansetClassifier):
 
         return all_marginals
 
-
     def marginals_with_attention(self, X_candidates, X, batch_size=None, **kwargs):
         """
         Compute the marginals for the given candidates X.
@@ -653,26 +661,30 @@ class WCLSTM(SpansetClassifier):
         Additionally print the attention weights
         """
         if batch_size is None:
-            all_marginals = self._marginals_batch(X)
+            all_marginals, word_weights = self._marginals_batch(X, save_attentions=True)
         else:
             N = len(X[0]) if self.representation else X[0].shape[0]
 
             # Iterate over batches
             batch_marginals = []
+            word_weights = []
             for b in range(0, N, batch_size):
-                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size]))
+                batch, batch_word_weights = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size]),
+                                                                  save_attentions=True)
                 # Note: Make sure a list is returned!
                 if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
+                word_weights.append(batch_word_weights)
+            word_weights = list(chain.from_iterable(word_weights))
             all_marginals = np.concatenate(batch_marginals)
-        max_sentence_length = max(a.shape[1] for a in self.word_model.word_attention)
+        max_sentence_length = max(a.shape[1] for a in word_weights)
         all_word_weights = np.concatenate(
-            [np.pad(a[:, :, 0], (0, max_sentence_length - a.shape[1]), "constant", constant_values=(-1e12, -1e12))
+            [np.pad(a[:, :, 0], ((0, 0), (0, max_sentence_length - a.shape[1])), "constant",
+                    constant_values=(-1e12, -1e12))
              for a
-             in self.word_model.word_attention])
+             in word_weights])
         write_attention(X_candidates, all_word_weights, self.output_path)
-
         return all_marginals
 
     def save(self, model_name=None, save_dir='checkpoints', verbose=True, only_param=False):

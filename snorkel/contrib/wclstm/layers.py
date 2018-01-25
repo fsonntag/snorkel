@@ -109,8 +109,6 @@ class WordRNN(nn.Module):
             self.attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
         self.linear = nn.Linear(b * lstm_hidden, n_classes)
 
-        self.word_attention = []
-
     def forward(self, x, x_mask, c_emb, state_word):
         """
         x      : batch_size * length
@@ -134,10 +132,7 @@ class WordRNN(nn.Module):
             word_attn_norm = F.softmax(word_attn.squeeze(2))
             word_attn_vectors = torch.bmm(output_word.transpose(1, 2), word_attn_norm.unsqueeze(2)).squeeze(2)
             output = self.linear(word_attn_vectors)
-            if hasattr(self, 'context_attention'):
-                self.word_attention.append(word_attn.data.numpy())
-            else:
-                self.word_attention = [word_attn.data.numpy()]
+            return output, word_attn
         else:
             """
             Mean pooling
@@ -150,7 +145,7 @@ class WordRNN(nn.Module):
             weights.data.masked_fill_(x_mask.data, 0.0)
             word_vectors = torch.bmm(output_word.transpose(1, 2), weights.unsqueeze(2)).squeeze(2)
             output = self.linear(word_vectors)
-        return output
+            return output
 
     def init_hidden(self, batch_size):
         if self.bidirectional:

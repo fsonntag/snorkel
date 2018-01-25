@@ -1,5 +1,6 @@
 import os
 import warnings
+from itertools import chain
 from time import time
 
 import torch.utils.data as data_utils
@@ -256,9 +257,9 @@ class ContextLSTM(SpansetClassifier):
             _s = _s.unsqueeze(0)
             s = _s if s is None else torch.cat((s, _s), 0)
         s = s.transpose(0, 1)
-        y_pred = w_model(context_x_w, context_x_w_mask, context_w_state_word,
-                         candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
-                         s)
+        y_pred, _ = w_model(context_x_w, context_x_w_mask, context_w_state_word,
+                            candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
+                            s)
 
         if self.host_device in self.gpu:
             loss = criterion(y_pred.squeeze(1).cuda(), y)
@@ -581,7 +582,7 @@ class ContextLSTM(SpansetClassifier):
         if dev_ckpt and X_dev is not None and verbose and self.dev_score_opt > 0:
             self.load(save_dir=save_dir, only_param=True)
 
-    def _marginals_batch(self, X):
+    def _marginals_batch(self, X, save_attentions=False):
         """Predict class based on user input"""
         self.candidate_char_model.eval()
         self.combined_word_model.eval()
@@ -596,6 +597,8 @@ class ContextLSTM(SpansetClassifier):
         x = torch.from_numpy(np.arange(len(context_X_w)))
         data_set = data_utils.TensorDataset(x, x)
         data_loader = data_utils.DataLoader(data_set, batch_size=self.batch_size, shuffle=False)
+        context_attentions = []
+        candidate_attention = []
 
         for x, _ in data_loader:
             context_x_w, context_x_w_mask, candidate_x_w, candidate_x_w_mask, x_c, x_c_mask \
@@ -622,20 +625,34 @@ class ContextLSTM(SpansetClassifier):
                 _s = _s.unsqueeze(0)
                 s = _s if s is None else torch.cat((s, _s), 0)
             s = s.transpose(0, 1)
-            y_pred = self.combined_word_model(context_x_w, context_x_w_mask, context_w_state_word,
-                                              candidate_x_w, candidate_x_w_mask, candidate_w_state_word,
-                                              s)
+            y_pred, (batch_context_attentions, batch_candidate_attentions) = \
+                self.combined_word_model(context_x_w,
+                                         context_x_w_mask,
+                                         context_w_state_word,
+                                         candidate_x_w,
+                                         candidate_x_w_mask,
+                                         candidate_w_state_word,
+                                         s)
             if self.host_device in self.gpu:
                 if self.cardinality > 2:
                     y = np.vstack((y, sigmoid(y_pred).data.cpu().numpy()))
                 else:
                     y = np.append(y, sigmoid(y_pred).data.cpu().numpy())
+                if save_attentions:
+                    context_attentions.append(batch_context_attentions.data.cpu().numpy())
+                    candidate_attention.append(batch_candidate_attentions.data.cpu().numpy())
             else:
                 if self.cardinality > 2:
                     y = np.vstack((y, sigmoid(y_pred).data.numpy()))
                 else:
                     y = np.append(y, sigmoid(y_pred).data.numpy())
-        return y
+                if save_attentions:
+                    context_attentions.append(batch_context_attentions.data.numpy())
+                    candidate_attention.append(batch_candidate_attentions.data.numpy())
+        if save_attentions:
+            return y, (context_attentions, candidate_attention)
+        else:
+            return y
 
     def marginals(self, X, batch_size=None, **kwargs):
         """
@@ -667,29 +684,37 @@ class ContextLSTM(SpansetClassifier):
         Additionally print the attention weights
         """
         if batch_size is None:
-            all_marginals = self._marginals_batch(X)
+            all_marginals, (context_weights, candidate_weights) = self._marginals_batch(X, save_attentions=True)
         else:
             N = len(X[0]) if self.representation else X[0].shape[0]
 
             # Iterate over batches
             batch_marginals = []
+            context_weights, candidate_weights = [], []
             for b in range(0, N, batch_size):
-                batch = self._marginals_batch((X[0][b:b + batch_size], X[1][b:b + batch_size], X[2][b:b + batch_size]))
+                batch, (batch_context_weights, batch_candidate_weights) = self._marginals_batch(
+                    (X[0][b:b + batch_size], X[1][b:b + batch_size], X[2][b:b + batch_size]), save_attentions=True)
                 # Note: Make sure a list is returned!
                 if min(b + batch_size, N) - b == 1:
                     batch = np.array([batch])
                 batch_marginals.append(batch)
+                context_weights.append(batch_context_weights)
+                candidate_weights.append(batch_candidate_weights)
             all_marginals = np.concatenate(batch_marginals)
-        max_context_length = max(a.shape[1] for a in self.combined_word_model.context_attention)
+            context_weights = list(chain.from_iterable(context_weights))
+            candidate_weights = list(chain.from_iterable(candidate_weights))
+        max_context_length = max(a.shape[1] for a in context_weights)
         context_weights = np.concatenate(
-            [np.pad(a[:, :, 0], (0, max_context_length - a.shape[1]), "constant", constant_values=(-1e12, -1e12))
+            [np.pad(a[:, :, 0], ((0, 0), (0, max_context_length - a.shape[1])), "constant",
+                    constant_values=(-1e12, -1e12))
              for a
-             in self.combined_word_model.context_attention])
-        max_candidate_length = max(a.shape[1] for a in self.combined_word_model.candidate_attention)
+             in context_weights])
+        max_candidate_length = max(a.shape[1] for a in candidate_weights)
         candidate_weights = np.concatenate(
-            [np.pad(a[:, :, 0], (0, max_candidate_length - a.shape[1]), "constant", constant_values=(-1e12, -1e12))
+            [np.pad(a[:, :, 0], ((0, 0), (0, max_candidate_length - a.shape[1])), "constant",
+                    constant_values=(-1e12, -1e12))
              for a
-             in self.combined_word_model.candidate_attention])
+             in candidate_weights])
         write_attention(X_candidates, context_weights, candidate_weights, self.context_radius, self.output_path)
 
         return all_marginals

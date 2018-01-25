@@ -203,10 +203,6 @@ class CombinedRNN(nn.Module):
             self.candidate_attn_linear_w_2 = nn.Linear(b * lstm_hidden, 1, bias=False)
         self.linear = nn.Linear(3 * b * lstm_hidden, n_classes)
 
-        self.left_context_attention = []
-        self.right_context_attention = []
-        self.candidate_attention = []
-
     def forward(self,
                 left_context_x_word, left_context_x_word_mask, left_state_context_word,
                 right_context_x_word, right_context_x_word_mask, right_state_context_word,
@@ -247,20 +243,9 @@ class CombinedRNN(nn.Module):
                                                                                      candidate_x_word_mask,
                                                                                      self.candidate_attn_linear_w_1,
                                                                                      self.candidate_attn_linear_w_2)
-            if hasattr(self, 'left_context_attention'):
-                self.left_context_attention.append(left_context_attention.numpy())
-            else:
-                self.left_context_attention = [left_context_attention.numpy()]
-            if hasattr(self, 'right_context_attention'):
-                self.right_context_attention.append(right_context_attention.numpy())
-            else:
-                self.right_context_attention = [right_context_attention.numpy()]
-            if hasattr(self, 'candidate_attention'):
-                self.candidate_attention.append(candidate_attention.numpy())
-            else:
-                self.candidate_attention = [candidate_attention.numpy()]
             output = self.linear(torch.cat(
                 (left_context_attention_vectors, candidate_attention_vectors, right_context_attention_vectors), 1))
+            return output, (left_context_attention, right_context_attention, candidate_attention)
         else:
             left_context_vectors = self.mean_pooling_output(left_output_context_word, left_context_x_word,
                                                             left_context_x_word_mask)
@@ -268,7 +253,7 @@ class CombinedRNN(nn.Module):
                                                              right_context_x_word_mask)
             candidate_vectors = self.mean_pooling_output(output_candidate_word, candidate_x_word, candidate_x_word_mask)
             output = self.linear(torch.cat((left_context_vectors, candidate_vectors, right_context_vectors)))
-        return output
+            return output
 
     def attention_output(self, output, x_mask, attn_linear_w_1, attn_linear_w_2):
         """
@@ -281,7 +266,7 @@ class CombinedRNN(nn.Module):
         word_attn.data.masked_fill_(x_mask.data.unsqueeze(2), -1e12)
         word_attn_norm = F.softmax(word_attn.squeeze(2))
         word_attn_vectors = torch.bmm(output.transpose(1, 2), word_attn_norm.unsqueeze(2)).squeeze(2)
-        return word_attn_vectors, word_attn.data
+        return word_attn_vectors, word_attn
 
     def mean_pooling_output(self, output, x, x_mask):
         """
