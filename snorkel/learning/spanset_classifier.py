@@ -1,5 +1,8 @@
 from itertools import chain
 
+import matplotlib
+
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
