@@ -81,7 +81,6 @@ class SpansetClassifier(Classifier):
             plt.ylabel('Loss')
             plt.xlabel('Epoch')
             plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
-            plt.gca().set_ylim([-0.05, 1.05])
             plt.savefig(str((self.output_path / 'loss.png').absolute()))
             plt.clf()
         if self.train_history and self.dev_history:
