@@ -828,7 +828,7 @@ class PCA(SpansetClassifier):
             self.cost_history.append((idx, cost))
             if verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                 print(f'Finished learning in epoch {idx + 1}')
-                msg = "[%s] Epoch %s, Training error: %s" % (self.name, idx + 1, cost)
+                msg = "[{}] Epoch {}, Training error: {:.2f}".format(self.name, idx + 1, cost)
                 score_label = "F1"
                 if print_train_scores:
                     if cardinality == 2:
