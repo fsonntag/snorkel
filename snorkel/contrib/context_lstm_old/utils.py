@@ -159,5 +159,7 @@ def write_attention(X_candidates, all_context_weights, all_candidate_weights, co
         ax.set_xticklabels([''] + c_words, rotation=90)
         ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
         ax.get_yaxis().set_visible(False)
-        plt.savefig(str((candidate_path / f'{i}_{candidate[0].get_span()}.png').absolute()))
+        span = candidate[0].get_span()
+        span = span.replace('/', '.')
+        plt.savefig(str((candidate_path / f'{i}_{span}.png').absolute()))
         fig.clf()

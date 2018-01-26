@@ -163,7 +163,9 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
             ax.set_xticklabels([''] + left_s_words, rotation=90)
             ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
             ax.get_yaxis().set_visible(False)
-            plt.savefig(str((context_path / f'{i}_left_{candidate[0].get_span()}.png').absolute()))
+            span = candidate[0].get_span()
+            span = span.replace('/', '.')
+            plt.savefig(str((context_path / f'{i}_left_{span}.png').absolute()))
             fig.clf()
 
         if right_s_words:
@@ -174,7 +176,9 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
             ax.set_xticklabels([''] + right_s_words, rotation=90)
             ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
             ax.get_yaxis().set_visible(False)
-            plt.savefig(str((context_path / f'{i}_right_{candidate[0].get_span()}.png').absolute()))
+            span = candidate[0].get_span()
+            span = span.replace('/', '.')
+            plt.savefig(str((context_path / f'{i}_right_{span}.png').absolute()))
             fig.clf()
 
         c_words = candidate[0].get_attrib_tokens()
@@ -185,5 +189,7 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
         ax.set_xticklabels([''] + c_words, rotation=90)
         ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
         ax.get_yaxis().set_visible(False)
-        plt.savefig(str((candidate_path / f'{i}_{candidate[0].get_span()}.png').absolute()))
+        span = candidate[0].get_span()
+        span = span.replace('/', '.')
+        plt.savefig(str((candidate_path / f'{i}_{span}.png').absolute()))
         fig.clf()
