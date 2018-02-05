@@ -761,6 +761,8 @@ class WCLSTM(SpansetClassifier):
         if self.host_device in self.gpu:
             self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'))
             self.char_model = torch.load(os.path.join(model_dir, model_name + '_char_model'))
+            self.word_model.cuda()
+            self.char_model.cuda()
         else:
             self.word_model = torch.load(os.path.join(model_dir, model_name + '_word_model'),
                                          lambda storage, loc: storage)

@@ -978,7 +978,12 @@ class PCA(SpansetClassifier):
                     else:
                         self.F = d['F']
 
-        self.model = torch.load(os.path.join(model_dir, model_name))
+        if self.host_device in self.gpu:
+            self.model = torch.load(os.path.join(model_dir, model_name))
+            self.model.cuda()
+        else:
+            self.model = torch.load(os.path.join(model_dir, model_name),
+                                    lambda storage, loc: storage)
 
         if verbose:
             print("[{0}] Loaded model <{1}>, only_param={2}".format(self.name, model_name, only_param))
