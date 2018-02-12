@@ -29,7 +29,7 @@ class ContextLSTM(SpansetClassifier):
         self.n_threads = n_threads
         self.seed = seed
         self.rand_state = np.random.RandomState()
-        super(ContextLSTM, self).__init__(**kwargs)
+        super(ContextLSTM, self).__init__(**kwargs, name=self.name)
 
     def _preprocess_data(self, candidates, extend=False):
         """Convert candidate sentences to lookup sequences
