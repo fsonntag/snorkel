@@ -584,7 +584,7 @@ class WCLSTM(SpansetClassifier):
                         and verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
                     scheduler.step(dev_score, idx)
                 else:
-                    scheduler.step(loss, idx)
+                    scheduler.step(cost, idx)
 
         # Conclude training
         if verbose:
