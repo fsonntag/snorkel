@@ -5,6 +5,7 @@ from time import time
 
 import torch.utils.data as data_utils
 from six.moves.cPickle import dump, load
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from snorkel.contrib.wclstm.layers import *
 from snorkel.contrib.wclstm.sigmoid_with_binary_crossentropy import SigmoidWithBinaryCrossEntropy
@@ -336,6 +337,15 @@ class WCLSTM(SpansetClassifier):
         # Set optimizer
         self.optimizer_name = kwargs.get('optimizer', 'adam')
 
+        # Set scheduler
+        self.use_scheduler = kwargs.get('use_scheduler', False)
+
+        # Use F1 score for scheduler. Otherwise use loss
+        self.use_f1_for_scheduler = kwargs.get('use_f1_for_scheduler', False)
+
+        # Scheduler kwargs
+        self.scheduler_kwargs = kwargs.get('scheduler_kwargs', {})
+
         # Set loss
         self.loss_name = kwargs.get('loss', 'mlsml')
 
@@ -495,6 +505,11 @@ class WCLSTM(SpansetClassifier):
             optimizer = torch.optim.Adam(list(self.char_model.parameters()) + list(self.word_model.parameters()),
                                          lr=self.lr, weight_decay=self.weight_decay)
 
+        if self.use_scheduler:
+            if self.use_f1_for_scheduler:
+                self.scheduler_kwargs['mode'] = 'max'
+            scheduler = ReduceLROnPlateau(optimizer, **self.scheduler_kwargs)
+
         if self.loss_name == 'mlsml':
             loss = nn.MultiLabelSoftMarginLoss()
         elif self.loss_name == 'sbce':
@@ -561,6 +576,13 @@ class WCLSTM(SpansetClassifier):
                         dev_ckpt and idx > dev_ckpt_delay * self.n_epochs):
                     print("[{}] No model improvement after {} epochs, halting".format(self.name, idx - last_epoch_opt))
                     break
+
+            if self.use_scheduler:
+                if self.use_f1_for_scheduler \
+                        and verbose and ((idx + 1) % print_freq == 0 or idx + 1 == self.n_epochs):
+                    scheduler.step(dev_score, idx)
+                else:
+                    scheduler.step(loss, idx)
 
         # Conclude training
         if verbose:
