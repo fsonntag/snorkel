@@ -123,7 +123,7 @@ def pad_batch(batch_w_context, batch_w_candidate, batch_c_candidate, context_rad
            candidate_char_matrix, candidate_char_mask_matrix
 
 
-def write_attention(X_candidates, all_context_weights, all_candidate_weights, context_radius, output_path):
+def write_attention(X_candidates, all_context_weights, all_candidate_weights, context_radius, output_path, limit=1000):
     context_path = output_path / 'context_attention'
     context_path.mkdir(exist_ok=True)
     candidate_path = output_path / 'candidate_attention'
@@ -163,3 +163,6 @@ def write_attention(X_candidates, all_context_weights, all_candidate_weights, co
         span = span.replace('/', '.')
         plt.savefig(str((candidate_path / f'{i}_{span}.png').absolute()))
         fig.clf()
+
+        if i == limit:
+            break

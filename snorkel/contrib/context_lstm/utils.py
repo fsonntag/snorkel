@@ -137,7 +137,7 @@ def pad_batch(left_batch_w_context, right_batch_w_context, batch_w_candidate, ba
 
 
 def write_attention(X_candidates, left_context_weights, right_context_weights, candidate_weights, context_radius,
-                    output_path):
+                    output_path, limit=1000):
     context_path = output_path / 'context_attention'
     context_path.mkdir(exist_ok=True)
     candidate_path = output_path / 'candidate_attention'
@@ -193,3 +193,6 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
         span = span.replace('/', '.')
         plt.savefig(str((candidate_path / f'{i}_{span}.png').absolute()))
         fig.clf()
+
+        if i == limit:
+            break

@@ -101,7 +101,7 @@ def pad_batch(batch_w, batch_c, max_sentence_length, max_word_length):
     return sent_matrix, sent_mask_matrix, word_matrix, word_mask_matrix
 
 
-def write_attention(X_candidates, all_word_weights, output_path):
+def write_attention(X_candidates, all_word_weights, output_path, limit=1000):
     attention_path = output_path / 'attention'
     attention_path.mkdir(exist_ok=True)
     fig = plt.figure()
@@ -126,3 +126,6 @@ def write_attention(X_candidates, all_word_weights, output_path):
         span = span.replace('/', '.')
         plt.savefig(str((attention_path / f'{i}_{span}.png').absolute()))
         fig.clf()
+
+        if i == limit:
+            break
