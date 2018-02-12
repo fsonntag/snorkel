@@ -292,14 +292,8 @@ class ContextLSTM(SpansetClassifier):
         # Set char embedding path
         self.char_emb_path = kwargs.get('char_emb_path', None)
 
-        # Set learning rate
-        self.lr = kwargs.get('lr', 1e-3)
-
         # Set use xavier initialization for LSTM
         self.use_xavier_init_lstm = kwargs.get('use_xavier_init_lstm', False)
-
-        # Set weight decay
-        self.weight_decay = kwargs.get('weight_decay', 0.)
 
         # Set shuffle batch data
         self.shuffle = kwargs.get('shuffle', False)
@@ -340,6 +334,9 @@ class ContextLSTM(SpansetClassifier):
         # Set optimizer
         self.optimizer_name = kwargs.get('optimizer', 'adam')
 
+        # Set optimizer kwargs
+        self.optimizer_kwargs = kwargs.get('optimizer_kwargs', {'lr': 1e-3})
+
         # Set scheduler
         self.use_scheduler = kwargs.get('use_scheduler', False)
 
@@ -360,7 +357,12 @@ class ContextLSTM(SpansetClassifier):
 
         print("===============================================")
         print(f"Number of learning epochs:     {self.n_epochs}")
-        print(f"Learning rate:                 {self.lr}")
+        print(f"Optimizer:                     {self.optimizer_name}")
+        print(f"Optimizer kwargs:              {self.optimizer_kwargs}")
+        print(f"Use scheduler:                 {self.use_scheduler}")
+        print(f"Use F1 for scheduler:          {self.use_f1_for_scheduler}")
+        print(f"Scheduler kwargs:              {self.scheduler_kwargs}")
+        print(f"Loss:                          {self.loss_name}")
         print(f"Use attention:                 {self.attention}")
         print(f"LSTM hidden dimension:         {self.lstm_hidden_dim}")
         print(f"dropout:                       {self.dropout}")
@@ -498,20 +500,20 @@ class ContextLSTM(SpansetClassifier):
         if self.optimizer_name == 'adam':
             optimizer = torch.optim.Adam(
                 list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
-                lr=self.lr, weight_decay=self.weight_decay)
+                **self.optimizer_kwargs)
         elif self.optimizer_name == 'rmsprop':
             optimizer = torch.optim.RMSprop(
                 list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
-                lr=self.lr, weight_decay=self.weight_decay)
+                **self.optimizer_kwargs)
         elif self.optimizer_name == 'sgd':
-            optimizer = torch.optim.RMSprop(
+            optimizer = torch.optim.SGD(
                 list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
-                lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
+                **self.optimizer_kwargs)
         else:
             warnings.warn('Couldn\'t recognize optimizer, using Adam')
             optimizer = torch.optim.Adam(
                 list(self.candidate_char_model.parameters()) + list(self.combined_word_model.parameters()),
-                lr=self.lr, weight_decay=self.weight_decay)
+                **self.optimizer_kwargs)
 
         if self.use_scheduler:
             if self.use_f1_for_scheduler:
