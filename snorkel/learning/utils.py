@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sparse
 
-from models import TemporarySpan
+from snorkel.models import TemporarySpan
 from snorkel.utils import overlapping_score
 
 try:
