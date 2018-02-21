@@ -154,9 +154,7 @@ def tokens_to_ngrams(tokens, n_max=3, delim=' '):
             yield delim.join(tokens[root:root + n + 1])
 
 
-def overlapping_score(candidate1, candidate2):
-    span1 = candidate1[0]
-    span2 = candidate2[0]
+def overlapping_score(span1, span2):
     if span1.sentence_id != span2.sentence_id:
         return 0.
     start1, end1 = span1.char_start, span1.char_end

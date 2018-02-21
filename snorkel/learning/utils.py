@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sparse
 
+from models import TemporarySpan
 from snorkel.utils import overlapping_score
 
 try:
@@ -140,7 +141,7 @@ class LabelBalancer(object):
 class Scorer(object):
     """Abstract type for scorers"""
 
-    def __init__(self, test_candidates, test_labels, output_path=None, gold_candidate_set=None):
+    def __init__(self, test_candidates, test_labels, output_path=None, gold_candidate_set=None, fps=None):
         """
         :param test_candidates: A *list of Candidates* corresponding to
             test_labels
@@ -153,6 +154,7 @@ class Scorer(object):
         self.test_labels = test_labels
         self.output_path = output_path
         self.gold_candidate_set = gold_candidate_set
+        self.fps = fps
 
     def _get_cardinality(self, marginals):
         """Get the cardinality based on the marginals returned by the model."""
@@ -223,7 +225,7 @@ class MentionScorer(Scorer):
             candidates_by_types[candidate.__tablename__].append((i, candidate))
 
         for type, candidates in candidates_by_types.items():
-            candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_start))
+            candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start, c[1][0].char_end))
 
             counts.types.add(type)
             for type_i, (i, candidate) in enumerate(candidates):
@@ -287,15 +289,18 @@ class MentionScorer(Scorer):
         except AttributeError:
             return self.test_labels[i]
 
-    def _overlapping_candidate_has_label(self, labels, i, candidate, candidates, set_unlabeled_as_neg=True):
+    def _overlapping_candidate_has_label(self, labels, i, span, candidates, set_unlabeled_as_neg=True):
         j = i - 1
         before_overlapping = True
         while before_overlapping and 0 <= j:
             before_i = candidates[j][0]
             before_candidate = candidates[j][1]
-            if before_candidate[0].sentence_id != candidate[0].sentence_id:
+            if type(before_candidate) == TemporarySpan:
+                j -= 1
+                continue
+            if before_candidate[0].sentence_id != span.sentence_id:
                 break
-            ov_score = overlapping_score(candidate, before_candidate)
+            ov_score = overlapping_score(span, before_candidate[0])
             if ov_score:
                 test_label = self._get_label_for_candidate(before_i, before_candidate)
                 if test_label == 0 and set_unlabeled_as_neg:
@@ -310,9 +315,12 @@ class MentionScorer(Scorer):
         while after_overlapping and len(candidates) > j:
             after_i = candidates[j][0]
             after_candidate = candidates[j][1]
-            if after_candidate[0].sentence_id != candidate[0].sentence_id:
+            if type(after_candidate) == TemporarySpan:
+                j -= 1
+                continue
+            if after_candidate[0].sentence_id != span.sentence_id:
                 break
-            ov_score = overlapping_score(candidate, after_candidate)
+            ov_score = overlapping_score(span, after_candidate[0])
             if ov_score:
                 test_label = self._get_label_for_candidate(after_i, after_candidate)
                 if test_label == 0 and set_unlabeled_as_neg:
@@ -324,15 +332,18 @@ class MentionScorer(Scorer):
                 after_overlapping = False
         return False, None
 
-    def _overlapping_candidate_has_pred(self, labels, i, candidate, candidates, preds, set_unlabeled_as_neg=True):
+    def _overlapping_candidate_has_pred(self, labels, i, span, candidates, preds, set_unlabeled_as_neg=True):
         j = i - 1
         before_overlapping = True
         while before_overlapping and 0 <= j:
             before_i = candidates[j][0]
             before_candidate = candidates[j][1]
-            if before_candidate[0].sentence_id != candidate[0].sentence_id:
+            if type(before_candidate) == TemporarySpan:
+                j -= 1
+                continue
+            if before_candidate[0].sentence_id != span.sentence_id:
                 break
-            ov_score = overlapping_score(candidate, before_candidate)
+            ov_score = overlapping_score(span, before_candidate[0])
             if ov_score:
                 test_label = preds[before_i]
                 if test_label == 0 and set_unlabeled_as_neg:
@@ -347,9 +358,12 @@ class MentionScorer(Scorer):
         while after_overlapping and len(candidates) > j:
             after_i = candidates[j][0]
             after_candidate = candidates[j][1]
-            if after_candidate[0].sentence_id != candidate[0].sentence_id:
+            if type(after_candidate) == TemporarySpan:
+                j -= 1
+                continue
+            if after_candidate[0].sentence_id != span.sentence_id:
                 break
-            ov_score = overlapping_score(candidate, after_candidate)
+            ov_score = overlapping_score(span, after_candidate[0])
             if ov_score:
                 test_label = preds[after_i]
                 if test_label == 0 and set_unlabeled_as_neg:
@@ -374,6 +388,7 @@ class MentionScorer(Scorer):
         """
         already_predicted = kwargs.get('already_predicted', False)
         prediction_type = kwargs.get('prediction_type', None)
+        fp_predictions = kwargs.get('fp_pred', [])
 
         test_label_array = []
         counts = Counts()
@@ -391,44 +406,65 @@ class MentionScorer(Scorer):
 
         types = self.test_candidates[0].values[:-1]
         type_labels = set()
-        for type in types:
-            counts.types.add(type)
-            type_labels.add(candidates[0][1].values.index(type) + 1)
+        for entity_type in types:
+            counts.types.add(entity_type)
+            type_labels.add(candidates[0][1].values.index(entity_type) + 1)
 
-        for type in types:
-            current_type_label = candidates[0][1].values.index(type) + 1
+        for entity_type in types:
+            current_type_label = candidates[0][1].values.index(entity_type) + 1
 
             for type_i, (i, candidate) in enumerate(candidates):
                 true_test_label = self._get_label_for_candidate(i, candidate)
                 if true_test_label != 0 and true_test_label == current_type_label:
-                    counts.t_support[type].add(candidate)
+                    counts.t_support[entity_type].add(candidate)
                 test_label_array.append(true_test_label)
                 predicted_label = test_pred[i]
                 if predicted_label == current_type_label:
                     if true_test_label == current_type_label:
                         counts.tp.add(candidate)
-                        counts.t_tp[type].add(candidate)
+                        counts.t_tp[entity_type].add(candidate)
                     else:
                         counts.fp.add(candidate)
-                        counts.t_fp[type].add(candidate)
+                        counts.t_fp[entity_type].add(candidate)
                         ov_score, ov_candidate = self._overlapping_candidate_has_label({predicted_label}, type_i,
-                                                                                       candidate, candidates, False)
+                                                                                       candidate[0], candidates, False)
                         if ov_score:
                             counts.fp_ov[(candidate, ov_candidate)] = ov_score
-                            counts.t_fp_ov[type][(candidate, ov_candidate)] = ov_score
+                            counts.t_fp_ov[entity_type][(candidate, ov_candidate)] = ov_score
                 else:
                     if true_test_label != current_type_label:
                         counts.tn.add(candidate)
-                        counts.t_tn[type].add(candidate)
+                        counts.t_tn[entity_type].add(candidate)
                     else:
                         counts.fn.add(candidate)
-                        counts.t_fn[type].add(candidate)
+                        counts.t_fn[entity_type].add(candidate)
                         ov_score, ov_candidate = self._overlapping_candidate_has_pred({true_test_label}, type_i,
-                                                                                      candidate,
+                                                                                      candidate[0],
                                                                                       candidates, test_pred, False)
                         if ov_score:
                             counts.fn_ov[(candidate, ov_candidate)] = ov_score
-                            counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
+                            counts.t_fn_ov[entity_type][(candidate, ov_candidate)] = ov_score
+
+        def candidate_key(c):
+            if type(c[1]) == TemporarySpan:
+                return (c[1].sentence_id, c[1].char_start)
+            char_start, _ = map(int, c[1][0].stable_id.split(":")[-2:])
+            return (c[1][0].sentence_id, char_start)
+
+        if self.fps is not None:
+            candidates += [(-1, c) for c in self.fps]
+            candidates.sort(key=candidate_key)
+
+            for fp, predicted_label in zip(self.fps, fp_predictions):
+                entity_type = types[int(predicted_label) - 1]
+                counts.fp.add(candidate)
+                counts.t_fp[entity_type].add(candidate)
+                i = candidates.index((-1, fp))
+                ov_score, ov_candidate = self._overlapping_candidate_has_label({predicted_label}, i,
+                                                                               fp, candidates, False)
+                if ov_score:
+                    counts.fp_ov[(candidate, ov_candidate)] = ov_score
+                    counts.t_fp_ov[entity_type][(candidate, ov_candidate)] = ov_score
 
         self.write_counts(counts, prediction_type=prediction_type)
 
@@ -441,19 +477,19 @@ class MentionScorer(Scorer):
                            if c not in self.test_candidates]
                 print("\n")
                 candidates += [(-1, c) for c in gold_fn]
-                candidates.sort(key=lambda c: (c[1][0].sentence_id, c[1][0].char_start))
+                candidates.sort(key=candidate_key)
                 for candidate in gold_fn:
                     type_label = candidate.gold_labels[0].value
-                    type = types[type_label - 1]
+                    entity_type = types[type_label - 1]
                     counts.fn.add(candidate)
-                    counts.t_fn[type].add(candidate)
+                    counts.t_fn[entity_type].add(candidate)
                     i = candidates.index((-1, candidate))
-                    ov_score, ov_candidate = self._overlapping_candidate_has_pred({type_label}, i, candidate,
+                    ov_score, ov_candidate = self._overlapping_candidate_has_pred({type_label}, i, candidate[0],
                                                                                   candidates, test_pred,
                                                                                   False)
                     if ov_score:
                         counts.fn_ov[(candidate, ov_candidate)] = ov_score
-                        counts.t_fn_ov[type][(candidate, ov_candidate)] = ov_score
+                        counts.t_fn_ov[entity_type][(candidate, ov_candidate)] = ov_score
 
                 scores = scores_from_counts(counts, "Corpus Recall-adjusted Scores", weighted=True,
                                             print_scores=display)

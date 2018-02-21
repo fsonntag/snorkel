@@ -185,6 +185,7 @@ class TemporarySpan(TemporaryContext):
     def __init__(self, sentence, char_start, char_end, meta=None):
         super(TemporarySpan, self).__init__()
         self.sentence     = sentence  # The sentence Context of the Span
+        self.sentence_id = sentence.id
         self.char_end   = char_end
         self.char_start = char_start
         self.meta       = meta
@@ -337,7 +338,7 @@ class Span(Context, TemporarySpan):
     def __hash__(self):
         return id(self)
 
-    
+
 class NoisyTaggedSentence(SnorkelBase):
     __tablename__ = 'noisy_tagged_sentence'
     id = Column(Integer, primary_key=True)
