@@ -19,7 +19,7 @@ def merge_to_spansets_train(X, train_marginals, pred_marginals):
                         current_spanset.append((original_i, candidate))
                     else:
                         last_candidate = current_spanset[-1][1]
-                        if overlapping_score(last_candidate, candidate) > 0:
+                        if overlapping_score(last_candidate[0], candidate[0]) > 0:
                             current_spanset.append((original_i, candidate))
                         else:
                             spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
@@ -64,7 +64,7 @@ def merge_to_spansets_dev(X, Y, marginals):
                     current_spanset.append((original_i, candidate))
                 else:
                     last_candidate = current_spanset[-1][1]
-                    if overlapping_score(last_candidate, candidate) > 0:
+                    if overlapping_score(last_candidate[0], candidate[0]) > 0:
                         current_spanset.append((original_i, candidate))
                     else:
                         spanset_chunks = [current_spanset[x:x + 15] for x in range(0, len(current_spanset), 15)]
