@@ -316,7 +316,7 @@ class MentionScorer(Scorer):
             after_i = candidates[j][0]
             after_candidate = candidates[j][1]
             if type(after_candidate) == TemporarySpan:
-                j -= 1
+                j += 1
                 continue
             if after_candidate[0].sentence_id != span.sentence_id:
                 break
@@ -359,7 +359,7 @@ class MentionScorer(Scorer):
             after_i = candidates[j][0]
             after_candidate = candidates[j][1]
             if type(after_candidate) == TemporarySpan:
-                j -= 1
+                j += 1
                 continue
             if after_candidate[0].sentence_id != span.sentence_id:
                 break
