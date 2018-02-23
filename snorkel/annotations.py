@@ -799,7 +799,7 @@ def get_fp_candidates(L, labels, lf_idx, session):
                          in zip(fp_candidates, np.ravel(positive_values[positive_values > 0]))]
         for fp_candidate in fp_candidates:
             overlapping_candidates = [true_candidate for true_candidate in true_candidates
-                                      if overlapping_score(true_candidate[0], fp_candidate[0]) > 0.5]
+                                      if overlapping_score(true_candidate[0], fp_candidate[0][0]) > 0.5]
             if not overlapping_candidates:
                 all_fp_candidates.append(fp_candidate)
 
