@@ -646,7 +646,7 @@ def write_confusion_matrices(L, labels, session, lf_names, label_values, seperat
                     true_candidates = session.query(Candidate).filter(Candidate.id.in_(true_candidate_indices)).all()
                     for pred_candidate in pred_candidates:
                         overlapping_candidates = [true_candidate for true_candidate in true_candidates
-                                                  if 1.0 > overlapping_score(true_candidate, pred_candidate) > 0.5]
+                                                  if 1.0 > overlapping_score(true_candidate[0], pred_candidate[0]) > 0.5]
 
                         ov_cm[column_idx][index_idx] -= len(overlapping_candidates)
 
@@ -799,7 +799,7 @@ def get_fp_candidates(L, labels, lf_idx, session):
                          in zip(fp_candidates, np.ravel(positive_values[positive_values > 0]))]
         for fp_candidate in fp_candidates:
             overlapping_candidates = [true_candidate for true_candidate in true_candidates
-                                      if overlapping_score(true_candidate, fp_candidate[0]) > 0.5]
+                                      if overlapping_score(true_candidate[0], fp_candidate[0]) > 0.5]
             if not overlapping_candidates:
                 all_fp_candidates.append(fp_candidate)
 
