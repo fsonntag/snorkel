@@ -165,7 +165,7 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
             ax.get_yaxis().set_visible(False)
             span = candidate[0].get_span()
             span = span.replace('/', '.')
-            plt.savefig(str((context_path / f'{i}_left_{span}.png').absolute()))
+            plt.savefig(str((context_path / f'{i}_left_{span}.pdf').absolute()))
             fig.clf()
 
         if right_s_words:
@@ -178,7 +178,7 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
             ax.get_yaxis().set_visible(False)
             span = candidate[0].get_span()
             span = span.replace('/', '.')
-            plt.savefig(str((context_path / f'{i}_right_{span}.png').absolute()))
+            plt.savefig(str((context_path / f'{i}_right_{span}.pdf').absolute()))
             fig.clf()
 
         c_words = candidate[0].get_attrib_tokens()
@@ -191,7 +191,7 @@ def write_attention(X_candidates, left_context_weights, right_context_weights, c
         ax.get_yaxis().set_visible(False)
         span = candidate[0].get_span()
         span = span.replace('/', '.')
-        plt.savefig(str((candidate_path / f'{i}_{span}.png').absolute()))
+        plt.savefig(str((candidate_path / f'{i}_{span}.pdf').absolute()))
         fig.clf()
 
         if i == limit:

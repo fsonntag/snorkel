@@ -150,7 +150,7 @@ def write_attention(X_candidates, all_context_weights, all_candidate_weights, co
         ax.get_yaxis().set_visible(False)
         span = candidate[0].get_span()
         span = span.replace('/', '.')
-        plt.savefig(str((context_path / f'{i}_{span}.png').absolute()))
+        plt.savefig(str((context_path / f'{i}_{span}.pdf').absolute()))
         fig.clf()
 
         c_words = candidate[0].get_attrib_tokens()
@@ -163,7 +163,7 @@ def write_attention(X_candidates, all_context_weights, all_candidate_weights, co
         ax.get_yaxis().set_visible(False)
         span = candidate[0].get_span()
         span = span.replace('/', '.')
-        plt.savefig(str((candidate_path / f'{i}_{span}.png').absolute()))
+        plt.savefig(str((candidate_path / f'{i}_{span}.pdf').absolute()))
         fig.clf()
 
         if i == limit:
