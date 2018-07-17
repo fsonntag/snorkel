@@ -20,8 +20,8 @@ class DocPreprocessor(object):
 
     """
 
-    def __init__(self, path, file_suffix=None, encoding="utf-8", max_docs=float('inf')):
-        self.path = path
+    def __init__(self, paths, file_suffix=None, encoding="utf-8", max_docs=float('inf')):
+        self.paths = paths
         self.file_suffix = file_suffix
         self.encoding = encoding
         self.max_docs = max_docs
@@ -32,7 +32,7 @@ class DocPreprocessor(object):
 
         """
         doc_count = 0
-        file_paths = self._get_files(self.path)
+        file_paths = self._get_files(self.paths)
         if self.file_suffix:
             file_paths = [file_path for file_path in file_paths if file_path.endswith(self.file_suffix)]
         for fp in file_paths:
@@ -56,17 +56,20 @@ class DocPreprocessor(object):
     def _can_read(self, fpath):
         return not fpath.startswith('.')
 
-    def _get_files(self, path):
-        if os.path.isfile(path):
-            fpaths = [path]
-        elif os.path.isdir(path):
-            fpaths = sorted([os.path.join(path, f) for f in os.listdir(path)])
-        else:
-            fpaths = glob.glob(path)
-        if len(fpaths) > 0:
-            return fpaths
-        else:
-            raise IOError("File or directory not found: %s" % (path,))
+    def _get_files(self, paths):
+        all_fpaths = []
+        for path in paths:
+            if os.path.isfile(path):
+                fpaths = [path]
+            elif os.path.isdir(path):
+                fpaths = sorted([os.path.join(path, f) for f in os.listdir(path)])
+            else:
+                fpaths = glob.glob(path)
+            if len(fpaths) > 0:
+                all_fpaths += fpaths
+            else:
+                raise IOError("File or directory not found: %s" % (path,))
+        return all_fpaths
 
 
 class TSVDocPreprocessor(DocPreprocessor):

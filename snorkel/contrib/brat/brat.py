@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tarfile
 import zipfile
-from collections import defaultdict
+from collections import defaultdict, Counter
 from pathlib import Path
 
 from IPython.display import IFrame, display, HTML
@@ -187,7 +187,7 @@ class BratAnnotator(object):
         display(IFrame(url, width=width, height=height))
 
     def map_annotations(self, session, annotation_dir, candidates, binary=True, categorical=False,
-                        symmetric_relations=True, out_path=Path('brat-out')):
+                        symmetric_relations=True, out_path=Path('brat-out'), type_map=None):
         """
         Import a collection of BRAT annotations,  map it onto the provided set
         of candidates, and create gold labels. This method DOES NOT create new
@@ -208,7 +208,7 @@ class BratAnnotator(object):
         # load BRAT annotations
         # fpath = self.get_collection_path(annotation_dir)
         fpath = annotation_dir
-        annotations = self.standoff_parser.load_annotations(fpath)
+        annotations = self.standoff_parser.load_annotations(fpath, type_map=type_map)
         doc_names = {c[0].sentence.document.meta['file_name'][:-4] for c in candidates}
         all_gold_keys = list(annotations.keys())
         for key in all_gold_keys:
@@ -293,14 +293,21 @@ class BratAnnotator(object):
                 if c[0].get_stable_id() not in brat_stable_ids:
                     false_positives.append((c[0].get_stable_id(), c[0].get_span(), c[0].get_attrib_span('pos_tags')))
 
-                if len(false_positives) >= 1000:
-                    break
 
-        out_path.mkdir(exist_ok=True)
+        fp_counts = Counter([fp[1] for fp in false_positives])
+        missed_counts = Counter([s[1] for s in missed])
+
+        if not os.path.exists(out_path):
+            os.makedirs(str(out_path))
+
         with open(out_path / f'missed_{self.candidate_class.__name__}.tsv', 'w') as file:
             file.writelines(['\t'.join(s[:-1]) + '\n' for s in missed])
+        with open(out_path / f'missed_counts_{self.candidate_class.__name__}.tsv', 'w') as file:
+            file.writelines([f'{name}\t{count}' + '\n' for name, count in missed_counts.most_common()])
         with open(out_path / f'fp_{self.candidate_class.__name__}.tsv', 'w') as file:
-            file.writelines(['\t'.join(s) + '\n' for s in false_positives])
+            file.writelines(['\t'.join(s) + '\n' for s in false_positives[:1000]])
+        with open(out_path / f'fp_counts_{self.candidate_class.__name__}.tsv', 'w') as file:
+            file.writelines([f'{name}\t{count}' + '\n' for name, count in fp_counts.most_common()])
         n, N = len(mapped_cands), len(missed) + len(mapped_cands)
         p = 0 if N == 0 else len(mapped_cands) / float(N)
         print("Mapped {}/{} ({:2.0f}%) of {} BRAT labels to {} candidates"
@@ -370,7 +377,7 @@ class BratAnnotator(object):
         return "{}/{}".format(self.data_root, annotation_dir)
 
     def import_gold_labels(self, session, annotation_dir, candidates, entity_type, split, binary=True,
-                           categorical=False, symmetric_relations=True, annotator_name='brat',
+                           categorical=False, symmetric_relations=True, type_map=None, annotator_name='brat',
                            out_path=Path('brat-out')):
         """
         We assume all candidates provided to this function are true instances
@@ -381,7 +388,8 @@ class BratAnnotator(object):
         """
         mapped_cands, missed_cands = self.map_annotations(session, annotation_dir, candidates, binary,
                                                           symmetric_relations,
-                                                          out_path=Path('brat-out'))
+                                                          out_path=out_path,
+                                                          type_map=type_map)
 
         for c, type in mapped_cands:
             if categorical:
@@ -643,7 +651,7 @@ class StandoffAnnotations(object):
         mod_path = "{}/templates/{}".format(os.path.abspath(os.path.dirname(__file__)), tmpl_path)
         self.config_tmpl = "".join(open(mod_path, "rU").readlines())
 
-    def load_annotations(self, input_dir):
+    def load_annotations(self, input_dir, type_map=None):
         """
         Import BART project,
         :param input_dir:
@@ -652,6 +660,8 @@ class StandoffAnnotations(object):
         :param parser:
         :return:
         """
+        if type_map is None:
+            type_map = {}
         config_path = "{}/{}".format(input_dir, "annotation.conf")
         if not os.path.exists(config_path):
             print("Fatal error: missing 'annotation.conf' file", file=sys.stderr)
@@ -659,7 +669,7 @@ class StandoffAnnotations(object):
 
         # load brat config (this defines relation and argument types)
         config = self._parse_config(config_path)
-        anno_filelist = set([os.path.basename(fn).strip(".ann") for fn in glob.glob(input_dir + "/*.ann")])
+        anno_filelist = set([os.path.basename(fn).strip(".ann") for fn in glob.glob(str(input_dir) + "/*.ann")])
 
         # import standoff annotations for all documents
         annotations = {}
@@ -667,11 +677,11 @@ class StandoffAnnotations(object):
             txt_fn = "{}/{}.txt".format(input_dir, fn)
             ann_fn = "{}/{}.ann".format(input_dir, fn)
             if os.path.exists(txt_fn) and os.path.exists(ann_fn):
-                annotations[fn] = self._parse_annotations(txt_fn, ann_fn)
+                annotations[fn] = self._parse_annotations(txt_fn, ann_fn, type_map)
 
         return annotations
 
-    def _parse_annotations(self, txt_filename, ann_filename):
+    def _parse_annotations(self, txt_filename, ann_filename, type_map):
         """
         Use parser to import BRAT standoff format
 
@@ -709,6 +719,8 @@ class StandoffAnnotations(object):
                         print("Error: Annotation spans do not match {} != {}".format(mention, text), file=sys.stderr)
                         continue
 
+                    if entity_type in type_map:
+                        entity_type = type_map[entity_type]
                     annotations[anno_id] = {"abs_char_start": i, "abs_char_end": j,
                                             "entity_type": entity_type, "mention": mention}
 
