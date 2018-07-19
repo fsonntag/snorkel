@@ -146,7 +146,10 @@ try:
                 d['FN'] = Series(data=fn, index=lf_names)
                 d['TN'] = Series(data=tn, index=lf_names)
 
-                write_confusion_matrices(self, ls, session, lf_names, label_values)
+                try:
+                    write_confusion_matrices(self, ls, session, lf_names, label_values)
+                except Exception as e:
+                    print(f"Error during writing confusion matrix {e}")
 
                 write_fp(self, ls, session, lf_names)
                 write_fn(self, ls, session, lf_names)
